@@ -200,3 +200,57 @@ tabs.forEach((btn) => {
 });
 
 render();
+
+const API_BASE = "https://fixfastautobot.onrender.com";
+
+async function submitRequest() {
+  try {
+    const initData = tg?.initData || "";
+
+    const payload = {
+      category: state.selectedCategory || "",
+      carClass: (document.querySelector("#carClass")?.value || "").trim(),
+      carModel: (document.querySelector("#carModel")?.value || "").trim(),
+      description: (document.querySelector("#description")?.value || "").trim(),
+      initData,
+    };
+
+    const res = await fetch(`${API_BASE}/api/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || data?.ok === false) {
+      tg?.showPopup?.({
+        title: "Ошибка",
+        message: data?.error || "Не удалось отправить",
+        buttons: [{ type: "close" }],
+      });
+      return;
+    }
+
+    tg?.showPopup?.({
+      title: "Готово",
+      message: "Заявка отправлена ✅",
+      buttons: [{ type: "close" }],
+    });
+  } catch (e) {
+    tg?.showPopup?.({
+      title: "Ошибка",
+      message: String(e?.message || e),
+      buttons: [{ type: "close" }],
+    });
+  }
+}
+
+document.querySelector("#submitBtn")?.addEventListener("click", submitRequest);
+
+document.addEventListener("click", (e) => {
+  if (e.target && e.target.id === "submitBtn") {
+    submitRequest();
+  }
+});
+
