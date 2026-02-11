@@ -9,11 +9,6 @@ if (tg) {
 const screen = document.getElementById("screen");
 const tabs = document.querySelectorAll(".tab");
 
-let state = {
-  tab: "requests",
-  selectedCategory: null,
-};
-
 const CATEGORIES = [
   "Мойка/шиномонтаж",
   "ТО/Ремонт",
@@ -22,6 +17,11 @@ const CATEGORIES = [
   "Тюнинг",
 ];
 
+let state = {
+  tab: "requests",
+  selectedCategory: null,
+};
+
 function getTgUser() {
   const u = tg?.initDataUnsafe?.user;
   if (!u) return null;
@@ -29,13 +29,15 @@ function getTgUser() {
 }
 
 function render() {
+  if (!screen) return;
   if (state.tab === "requests") return renderRequests();
   if (state.tab === "inwork") return renderInWork();
   if (state.tab === "profile") return renderProfile();
 }
 
 function renderRequests() {
-  if (state.selectedCategory) return renderCategoryForm(state.selectedCategory);
+  // если выбрали категорию — показываем общую форму заявки
+  if (state.selectedCategory) return renderRequestForm(state.selectedCategory);
 
   screen.innerHTML = `
     <div class="card">
@@ -45,11 +47,11 @@ function renderRequests() {
       <div class="grid">
         ${CATEGORIES.map(
           (c) => `
-          <div class="item" data-cat="${c}">
-            <div class="name">${c}</div>
-            <div class="arrow">›</div>
-          </div>
-        `
+            <div class="item" data-cat="${c}">
+              <div class="name">${c}</div>
+              <div class="arrow">›</div>
+            </div>
+          `
         ).join("")}
       </div>
 
@@ -67,7 +69,7 @@ function renderRequests() {
   });
 }
 
-function renderCategoryForm(category) {
+function renderRequestForm(category) {
   screen.innerHTML = `
     <div class="card">
       <div class="badge">Заявка • ${escapeHtml(category)}</div>
@@ -85,8 +87,8 @@ function renderCategoryForm(category) {
       <div class="label">Марка / модель</div>
       <input class="input" id="carModel" placeholder="Например: BMW 5, Mercedes C, Tesla Model 3" />
 
-      <div class="label">Описание</div>
-      <textarea class="textarea" id="description" placeholder="Что нужно сделать? Чем подробнее — тем быстрее подберем сервис."></textarea>
+      <div class="label">Описание работы</div>
+      <textarea class="textarea" id="description" placeholder="Что нужно сделать: опиши задачу максимально конкретно"></textarea>
 
       <div class="row" style="margin-top:12px">
         <button class="tab" id="backBtn">Назад</button>
@@ -99,33 +101,30 @@ function renderCategoryForm(category) {
     </div>
   `;
 
-  document.getElementById("backBtn").addEventListener("click", () => {
+  document.getElementById("backBtn")?.addEventListener("click", () => {
     state.selectedCategory = null;
     render();
   });
 
-  document.getElementById("submitBtn").addEventListener("click", submitCategoryRequest);
+  document.getElementById("submitBtn")?.addEventListener("click", () => submitRequest(category));
 }
 
-async function submitCategoryRequest() {
-  const category = state.selectedCategory || "";
+async function submitRequest(category) {
   const carClass = (document.getElementById("carClass")?.value || "").trim();
   const carModel = (document.getElementById("carModel")?.value || "").trim();
   const description = (document.getElementById("description")?.value || "").trim();
 
-  if (!category) {
-    tg?.showPopup?.({ title: "Ошибка", message: "Не выбрана категория.", buttons: [{ type: "ok" }] });
-    return;
-  }
-
   if (!carModel || !description) {
     tg?.showPopup?.({
       title: "Заполните поля",
-      message: "Нужны «Марка/модель» и «Описание».",
+      message: "Нужны «Марка/модель» и «Описание работы».",
       buttons: [{ type: "ok" }],
     });
     return;
   }
+
+  // важно: именно initData (строка), чтобы потом можно было валидировать на сервере
+  const initData = tg?.initData || "";
 
   const payload = {
     category,
@@ -133,6 +132,7 @@ async function submitCategoryRequest() {
     carModel,
     description,
     tgUser: getTgUser(),
+    initData,
   };
 
   try {
@@ -143,10 +143,10 @@ async function submitCategoryRequest() {
     });
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.ok === false) throw new Error(data?.error || "Unknown error");
+    if (!res.ok || data?.ok === false) throw new Error(data?.error || "Не удалось отправить");
 
     tg?.showPopup?.({
-      title: "Заявка отправлена",
+      title: "Заявка отправлена ✅",
       message: "Менеджер скоро свяжется с вами.",
       buttons: [{ type: "ok" }],
     });
@@ -156,7 +156,7 @@ async function submitCategoryRequest() {
   } catch (e) {
     tg?.showPopup?.({
       title: "Ошибка",
-      message: `Не удалось отправить заявку: ${e.message}`,
+      message: `Не удалось отправить заявку: ${e?.message || e}`,
       buttons: [{ type: "ok" }],
     });
   }
@@ -167,7 +167,7 @@ function renderInWork() {
     <div class="card">
       <div class="badge">В работе</div>
       <div class="hr"></div>
-      <div class="small">Пока пусто. Здесь будут статусы: «принято», «в пути», «в работе», «готово».</div>
+      <div class="small">Пока пусто. Здесь будут статусы: «менеджер выехал», «доставляем», «в работе», «готова к выдаче».</div>
     </div>
   `;
 }
@@ -181,6 +181,7 @@ function renderProfile() {
       <div style="font-size:16px;font-weight:700">${escapeHtml(u?.first_name ?? "Гость")}</div>
       <div class="small">${u?.username ? "@" + escapeHtml(u.username) : "Откройте через Telegram"}</div>
       <div class="hr"></div>
+
       <div class="row">
         <div class="card" style="padding:12px">
           <div class="small">Баланс</div>
@@ -191,6 +192,7 @@ function renderProfile() {
           <div style="font-size:18px;font-weight:800;margin-top:4px">0</div>
         </div>
       </div>
+
       <div class="hr"></div>
       <div class="small">Гараж и рейтинг добавим следующим шагом.</div>
     </div>
@@ -202,13 +204,10 @@ tabs.forEach((btn) => {
     tabs.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     state.tab = btn.dataset.tab;
-
     if (state.tab !== "requests") state.selectedCategory = null;
     render();
   });
 });
-
-render();
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -216,5 +215,7 @@ function escapeHtml(s) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replaceAll("'", "&#39;");
 }
+
+render();
