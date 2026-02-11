@@ -41,7 +41,7 @@ function renderRequests() {
 
   screen.innerHTML = `
     <div class="card">
-      <div class="badge">Быстрый заказ</div>
+      <div class="badge">Выберете услугу, добавьте ваш автомобиль, опишите необходимые работы и мы заберем ваш авто в течении часа.</div>
       <div class="hr"></div>
 
       <div class="grid">
@@ -56,7 +56,7 @@ function renderRequests() {
       </div>
 
       <div class="hr"></div>
-      <div class="small">Забор/привоз авто — 5–10 тыс ₽. Работы выполняет подключенный сервис.</div>
+      <div class="small">Стоимость услуги от 2 тысяч рублей. Работы выполняет подключенный сервис.</div>
     </div>
   `;
 
