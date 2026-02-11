@@ -35,20 +35,24 @@ function render() {
 }
 
 function renderRequests() {
-  if (state.selectedCategory === "Детейлинг") return renderDetailingForm();
+  if (state.selectedCategory) return renderCategoryForm(state.selectedCategory);
 
   screen.innerHTML = `
     <div class="card">
       <div class="badge">Быстрый заказ</div>
       <div class="hr"></div>
+
       <div class="grid">
-        ${CATEGORIES.map((c) => `
+        ${CATEGORIES.map(
+          (c) => `
           <div class="item" data-cat="${c}">
             <div class="name">${c}</div>
             <div class="arrow">›</div>
           </div>
-        `).join("")}
+        `
+        ).join("")}
       </div>
+
       <div class="hr"></div>
       <div class="small">Забор/привоз авто — 5–10 тыс ₽. Работы выполняет подключенный сервис.</div>
     </div>
@@ -57,21 +61,16 @@ function renderRequests() {
   document.querySelectorAll(".item").forEach((el) => {
     el.addEventListener("click", () => {
       const cat = el.getAttribute("data-cat");
-      if (cat === "Детейлинг") {
-        state.selectedCategory = "Детейлинг";
-        render();
-      } else {
-        // пока остальные категории как заглушка
-        tg?.showPopup?.({ title: cat, message: "Эта форма будет добавлена следующей.", buttons: [{ type: "ok" }] });
-      }
+      state.selectedCategory = cat;
+      render();
     });
   });
 }
 
-function renderDetailingForm() {
+function renderCategoryForm(category) {
   screen.innerHTML = `
     <div class="card">
-      <div class="badge">Заявка • Детейлинг</div>
+      <div class="badge">Заявка • ${escapeHtml(category)}</div>
       <div class="hr"></div>
 
       <div class="label">Класс машины</div>
@@ -86,8 +85,8 @@ function renderDetailingForm() {
       <div class="label">Марка / модель</div>
       <input class="input" id="carModel" placeholder="Например: BMW 5, Mercedes C, Tesla Model 3" />
 
-      <div class="label">Описание работы</div>
-      <textarea class="textarea" id="description" placeholder="Что нужно сделать: химчистка, полировка, керамика, фары..."></textarea>
+      <div class="label">Описание</div>
+      <textarea class="textarea" id="description" placeholder="Что нужно сделать? Чем подробнее — тем быстрее подберем сервис."></textarea>
 
       <div class="row" style="margin-top:12px">
         <button class="tab" id="backBtn">Назад</button>
@@ -105,21 +104,31 @@ function renderDetailingForm() {
     render();
   });
 
-  document.getElementById("submitBtn").addEventListener("click", submitDetailing);
+  document.getElementById("submitBtn").addEventListener("click", submitCategoryRequest);
 }
 
-async function submitDetailing() {
-  const carClass = document.getElementById("carClass").value.trim();
-  const carModel = document.getElementById("carModel").value.trim();
-  const description = document.getElementById("description").value.trim();
+async function submitCategoryRequest() {
+  const category = state.selectedCategory || "";
+  const carClass = (document.getElementById("carClass")?.value || "").trim();
+  const carModel = (document.getElementById("carModel")?.value || "").trim();
+  const description = (document.getElementById("description")?.value || "").trim();
+
+  if (!category) {
+    tg?.showPopup?.({ title: "Ошибка", message: "Не выбрана категория.", buttons: [{ type: "ok" }] });
+    return;
+  }
 
   if (!carModel || !description) {
-    tg?.showPopup?.({ title: "Заполните поля", message: "Нужны «Марка/модель» и «Описание работы».", buttons: [{ type: "ok" }] });
+    tg?.showPopup?.({
+      title: "Заполните поля",
+      message: "Нужны «Марка/модель» и «Описание».",
+      buttons: [{ type: "ok" }],
+    });
     return;
   }
 
   const payload = {
-    category: "Детейлинг",
+    category,
     carClass,
     carModel,
     description,
@@ -132,17 +141,16 @@ async function submitDetailing() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
 
-    if (!data.ok) throw new Error(data.error || "Unknown error");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) throw new Error(data?.error || "Unknown error");
 
     tg?.showPopup?.({
       title: "Заявка отправлена",
-      message: "Менеджер скоро свяжется с вами. Можно закрыть окно.",
+      message: "Менеджер скоро свяжется с вами.",
       buttons: [{ type: "ok" }],
     });
 
-    // сброс формы
     state.selectedCategory = null;
     render();
   } catch (e) {
@@ -159,7 +167,7 @@ function renderInWork() {
     <div class="card">
       <div class="badge">В работе</div>
       <div class="hr"></div>
-      <div class="small">Пока пусто. Здесь будут статусы: «менеджер выехал», «доставляем», «в работе», «готова к выдаче».</div>
+      <div class="small">Пока пусто. Здесь будут статусы: «принято», «в пути», «в работе», «готово».</div>
     </div>
   `;
 }
@@ -170,8 +178,8 @@ function renderProfile() {
     <div class="card">
       <div class="badge">Профиль</div>
       <div class="hr"></div>
-      <div style="font-size:16px;font-weight:700">${u?.first_name ?? "Гость"}</div>
-      <div class="small">${u?.username ? "@" + u.username : "Откройте через Telegram"}</div>
+      <div style="font-size:16px;font-weight:700">${escapeHtml(u?.first_name ?? "Гость")}</div>
+      <div class="small">${u?.username ? "@" + escapeHtml(u.username) : "Откройте через Telegram"}</div>
       <div class="hr"></div>
       <div class="row">
         <div class="card" style="padding:12px">
@@ -194,6 +202,7 @@ tabs.forEach((btn) => {
     tabs.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     state.tab = btn.dataset.tab;
+
     if (state.tab !== "requests") state.selectedCategory = null;
     render();
   });
@@ -201,56 +210,11 @@ tabs.forEach((btn) => {
 
 render();
 
-const API_BASE = "https://fixfastautobot.onrender.com";
-
-async function submitRequest() {
-  try {
-    const initData = tg?.initData || "";
-
-    const payload = {
-      category: state.selectedCategory || "",
-      carClass: (document.querySelector("#carClass")?.value || "").trim(),
-      carModel: (document.querySelector("#carModel")?.value || "").trim(),
-      description: (document.querySelector("#description")?.value || "").trim(),
-      initData,
-    };
-
-    const res = await fetch(`${API_BASE}/api/request`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok || data?.ok === false) {
-      tg?.showPopup?.({
-        title: "Ошибка",
-        message: data?.error || "Не удалось отправить",
-        buttons: [{ type: "close" }],
-      });
-      return;
-    }
-
-    tg?.showPopup?.({
-      title: "Готово",
-      message: "Заявка отправлена ✅",
-      buttons: [{ type: "close" }],
-    });
-  } catch (e) {
-    tg?.showPopup?.({
-      title: "Ошибка",
-      message: String(e?.message || e),
-      buttons: [{ type: "close" }],
-    });
-  }
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
-
-document.querySelector("#submitBtn")?.addEventListener("click", submitRequest);
-
-document.addEventListener("click", (e) => {
-  if (e.target && e.target.id === "submitBtn") {
-    submitRequest();
-  }
-});
-
