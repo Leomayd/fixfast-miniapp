@@ -1,4 +1,3 @@
-// fixfast-miniapp/app.js
 const API_BASE = "https://fixfastautobot.onrender.com";
 
 const tg = window.Telegram?.WebApp;
@@ -19,34 +18,30 @@ const CATEGORIES = [
 ];
 
 const CAR_CLASSES = ["Эконом", "Комфорт", "Бизнес", "Премиум", "SUV"];
+const CAR_COLORS = ["", "Black", "White", "Gray", "Silver", "Blue", "Red", "Green", "Brown", "Yellow", "Orange"];
 
-// ====== STATE ======
 let state = {
   tab: "requests",
   selectedCategory: null,
 
-  // from server (Postgres)
   garage: [],
   activeCarId: "",
   points: 0,
 
-  // requests
   myRequests: [],
   pollTimer: null,
+
+  openCarId: "",
 };
 
-// ====== TELEGRAM USER ======
 function getTgUser() {
   const u = tg?.initDataUnsafe?.user;
   if (!u) return null;
   return { id: u.id, first_name: u.first_name, username: u.username };
 }
-
 function getInitData() {
   return tg?.initData || "";
 }
-
-// ====== HTML ESCAPE ======
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -56,7 +51,6 @@ function escapeHtml(s) {
     .replaceAll("'", "&#39;");
 }
 
-// ====== STATUS LABELS ======
 function statusLabel(st) {
   if (st === "new") return "🆕 Новая";
   if (st === "inwork") return "🛠️ В работе";
@@ -64,16 +58,10 @@ function statusLabel(st) {
   if (st === "canceled") return "❌ Отменено";
   return st || "";
 }
-
 function formatDate(ts) {
-  try {
-    return new Date(ts).toLocaleString("ru-RU");
-  } catch {
-    return "";
-  }
+  try { return new Date(ts).toLocaleString("ru-RU"); } catch { return ""; }
 }
 
-// ====== API ======
 async function apiPost(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -85,10 +73,8 @@ async function apiPost(path, body) {
   return data;
 }
 
-// ====== PROFILE (garage + points + activeCar) ======
 async function loadProfile() {
   const data = await apiPost("/api/profile", { initData: getInitData() });
-
   state.garage = Array.isArray(data.garage) ? data.garage : [];
   state.activeCarId = data.activeCarId || state.garage[0]?.id || "";
   state.points = Number(data.points || 0) || 0;
@@ -98,11 +84,9 @@ function getActiveCar() {
   return (state.garage || []).find((c) => c.id === state.activeCarId) || null;
 }
 
-// ====== REQUESTS (server) ======
 async function loadMyRequests() {
   const tgUser = getTgUser();
   if (!tgUser?.id) return;
-
   const data = await apiPost("/api/my-requests", { initData: getInitData() });
   state.myRequests = data.items || [];
 }
@@ -117,13 +101,11 @@ function startPolling() {
     } catch {}
   }, 5000);
 }
-
 function stopPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = null;
 }
 
-// ====== RENDER SWITCH ======
 function render() {
   if (!screen) return;
   if (state.tab === "requests") return renderRequests();
@@ -131,7 +113,7 @@ function render() {
   if (state.tab === "profile") return renderProfile();
 }
 
-// ====== REQUESTS TAB ======
+// ===== REQUESTS =====
 function renderRequests() {
   if (state.selectedCategory) return renderRequestForm(state.selectedCategory);
 
@@ -186,9 +168,7 @@ function renderRequestForm(category) {
         ${cars
           .map((c) => {
             const sel = c.id === state.activeCarId ? "selected" : "";
-            return `<option value="${escapeHtml(c.id)}" ${sel}>${escapeHtml(c.title)} • ${escapeHtml(
-              c.carClass
-            )}</option>`;
+            return `<option value="${escapeHtml(c.id)}" ${sel}>${escapeHtml(c.title)} • ${escapeHtml(c.carClass)}</option>`;
           })
           .join("")}
       </select>
@@ -215,11 +195,9 @@ function renderRequestForm(category) {
   const classSel = document.getElementById("carClass");
   const modelInp = document.getElementById("carModel");
 
-  // автоподстановка из активного авто
   if (activeCar?.carClass) classSel.value = activeCar.carClass;
   if (activeCar?.title) modelInp.value = activeCar.title;
 
-  // при выборе авто — подставляем класс/модель
   carSel?.addEventListener("change", () => {
     const id = carSel.value;
     const chosen = cars.find((c) => c.id === id) || activeCar;
@@ -231,7 +209,6 @@ function renderRequestForm(category) {
     state.selectedCategory = null;
     render();
   });
-
   document.getElementById("submitBtn")?.addEventListener("click", () => submitRequest(category));
 }
 
@@ -242,11 +219,7 @@ async function submitRequest(category) {
   const description = (document.getElementById("description")?.value || "").trim();
 
   if (!carModel || !description) {
-    tg?.showPopup?.({
-      title: "Заполните поля",
-      message: "Нужны «Марка/модель» и «Описание работы».",
-      buttons: [{ type: "ok" }],
-    });
+    tg?.showPopup?.({ title: "Заполните поля", message: "Нужны «Марка/модель» и «Описание работы».", buttons: [{ type: "ok" }] });
     return;
   }
 
@@ -260,19 +233,13 @@ async function submitRequest(category) {
     carModel,
     description,
     car: chosenCar
-      ? {
-          id: chosenCar.id,
-          title: chosenCar.title,
-          plate: chosenCar.plate || "",
-          carClass: chosenCar.carClass || "",
-        }
+      ? { id: chosenCar.id, title: chosenCar.title, plate: chosenCar.plate || "", carClass: chosenCar.carClass || "" }
       : null,
     initData: getInitData(),
   };
 
   try {
     await apiPost("/api/request", payload);
-
     tg?.showPopup?.({
       title: "Заявка отправлена ✅",
       message: "После завершения работ вы получите 1000 бонусов. Статус появится во вкладке «В работе».",
@@ -280,26 +247,15 @@ async function submitRequest(category) {
     });
 
     state.selectedCategory = null;
-
-    // обновим данные
-    try {
-      await loadMyRequests();
-    } catch {}
-    try {
-      await loadProfile();
-    } catch {}
-
+    try { await loadMyRequests(); } catch {}
+    try { await loadProfile(); } catch {}
     render();
   } catch (e) {
-    tg?.showPopup?.({
-      title: "Ошибка",
-      message: `Не удалось отправить заявку: ${e?.message || e}`,
-      buttons: [{ type: "ok" }],
-    });
+    tg?.showPopup?.({ title: "Ошибка", message: `Не удалось отправить заявку: ${e?.message || e}`, buttons: [{ type: "ok" }] });
   }
 }
 
-// ====== INWORK TAB ======
+// ===== INWORK =====
 function renderInWork() {
   const items = state.myRequests || [];
 
@@ -337,20 +293,15 @@ function renderInWork() {
       await loadMyRequests();
       renderInWork();
     } catch (e) {
-      tg?.showPopup?.({
-        title: "Ошибка",
-        message: e?.message || String(e),
-        buttons: [{ type: "ok" }],
-      });
+      tg?.showPopup?.({ title: "Ошибка", message: e?.message || String(e), buttons: [{ type: "ok" }] });
     }
   });
 }
 
-// ====== PROFILE TAB ======
+// ===== PROFILE =====
 async function renderProfile() {
   const u = getTgUser();
   const cars = state.garage || [];
-  const activeCar = getActiveCar();
   const points = state.points || 0;
 
   screen.innerHTML = `
@@ -377,30 +328,10 @@ async function renderProfile() {
       <div class="hr"></div>
 
       <div class="badge">Гараж</div>
-      <div class="small" style="margin-top:6px">Активное авто подставляется в заявку автоматически.</div>
+      <div class="small" style="margin-top:6px">VIN → decode → подтягиваем 1 фото модели. Для точности выбери цвет.</div>
       <div class="hr"></div>
 
-      ${
-        cars.length
-          ? cars
-              .map((c) => {
-                const isActive = c.id === state.activeCarId;
-                return `
-                  <div class="item" style="cursor:default">
-                    <div>
-                      <div class="name">${escapeHtml(c.title)}</div>
-                      <div class="small">${escapeHtml(c.carClass)}${isActive ? " • ✅ Активное" : ""}</div>
-                    </div>
-                    <div style="display:flex;gap:8px">
-                      <button class="tab" data-act="set" data-id="${escapeHtml(c.id)}">Выбрать</button>
-                      <button class="tab" data-act="del" data-id="${escapeHtml(c.id)}">✕</button>
-                    </div>
-                  </div>
-                `;
-              })
-              .join("")
-          : `<div class="small">Пока пусто. Добавьте авто ниже.</div>`
-      }
+      ${cars.length ? cars.map(renderCarCard).join('<div class="hr"></div>') : `<div class="small">Пока пусто. Добавьте авто ниже.</div>`}
 
       <div class="hr"></div>
 
@@ -415,40 +346,80 @@ async function renderProfile() {
       <div class="row" style="margin-top:12px">
         <button class="btn" id="addCarBtn">Добавить авто</button>
       </div>
-
-      <div class="small" style="margin-top:10px;opacity:.8">
-        Сейчас активное авто: ${
-          activeCar ? `<b>${escapeHtml(activeCar.title)}</b> • ${escapeHtml(activeCar.carClass)}` : "—"
-        }
-      </div>
     </div>
   `;
 
-  // garage actions
-  document.querySelectorAll("[data-act]").forEach((btn) => {
+  // actions
+  document.querySelectorAll("[data-car-act]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const act = btn.getAttribute("data-act");
-      const id = btn.getAttribute("data-id");
-      if (!id) return;
+      const act = btn.getAttribute("data-car-act");
+      const carId = btn.getAttribute("data-car-id");
+      if (!act || !carId) return;
 
       try {
-        if (act === "set") {
-          await apiPost("/api/garage/set-active", { initData: getInitData(), carId: id });
-          await loadProfile();
+        if (act === "toggle") {
+          state.openCarId = state.openCarId === carId ? "" : carId;
           await renderProfile();
+          return;
         }
 
-        if (act === "del") {
-          await apiPost("/api/garage/delete", { initData: getInitData(), carId: id });
+        if (act === "set-active") {
+          await apiPost("/api/garage/set-active", { initData: getInitData(), carId });
           await loadProfile();
           await renderProfile();
+          return;
+        }
+
+        if (act === "delete") {
+          await apiPost("/api/garage/delete", { initData: getInitData(), carId });
+          state.openCarId = "";
+          await loadProfile();
+          await renderProfile();
+          return;
+        }
+
+        if (act === "save") {
+          const plate = (document.getElementById(`plate_${carId}`)?.value || "").trim().toUpperCase();
+          const vin = (document.getElementById(`vin_${carId}`)?.value || "").trim().toUpperCase();
+          const color = (document.getElementById(`color_${carId}`)?.value || "").trim();
+
+          await apiPost("/api/garage/update", { initData: getInitData(), carId, plate, vin, color });
+          await loadProfile();
+          tg?.showPopup?.({ title: "Сохранено ✅", message: "Данные авто обновлены", buttons: [{ type: "ok" }] });
+          await renderProfile();
+          return;
+        }
+
+        if (act === "vin-photo") {
+          const vin = (document.getElementById(`vin_${carId}`)?.value || "").trim().toUpperCase();
+          const color = (document.getElementById(`color_${carId}`)?.value || "").trim();
+
+          if (!vin) {
+            tg?.showPopup?.({ title: "VIN нужен", message: "Введите VIN (17 символов)", buttons: [{ type: "ok" }] });
+            return;
+          }
+
+          const r = await apiPost("/api/car/vin-auto-photo", { initData: getInitData(), carId, vin, color });
+
+          await loadProfile();
+          await renderProfile();
+
+          const make = r?.decoded?.make || "";
+          const model = r?.decoded?.model || "";
+          const year = r?.decoded?.year || "";
+          const body = r?.decoded?.body_class || "";
+
+          tg?.showPopup?.({
+            title: "Готово ✅",
+            message:
+              `VIN: ${year} ${make} ${model} ${body}\n` +
+              (r.photoUrl ? "Фото подтянуто и сохранено." : "Фото не найдено (выбери цвет и попробуй ещё)."),
+            buttons: [{ type: "ok" }],
+          });
+          return;
         }
       } catch (e) {
-        tg?.showPopup?.({
-          title: "Ошибка",
-          message: e?.message || String(e),
-          buttons: [{ type: "ok" }],
-        });
+        tg?.showPopup?.({ title: "Ошибка", message: e?.message || String(e), buttons: [{ type: "ok" }] });
       }
     });
   });
@@ -458,11 +429,7 @@ async function renderProfile() {
     const carClass = (document.getElementById("newCarClass")?.value || "Бизнес").trim();
 
     if (!title) {
-      tg?.showPopup?.({
-        title: "Заполните",
-        message: "Введите марку/модель",
-        buttons: [{ type: "ok" }],
-      });
+      tg?.showPopup?.({ title: "Заполните", message: "Введите марку/модель", buttons: [{ type: "ok" }] });
       return;
     }
 
@@ -472,16 +439,72 @@ async function renderProfile() {
       tg?.showPopup?.({ title: "Готово ✅", message: "Авто добавлено", buttons: [{ type: "ok" }] });
       await renderProfile();
     } catch (e) {
-      tg?.showPopup?.({
-        title: "Ошибка",
-        message: e?.message || String(e),
-        buttons: [{ type: "ok" }],
-      });
+      tg?.showPopup?.({ title: "Ошибка", message: e?.message || String(e), buttons: [{ type: "ok" }] });
     }
   });
 }
 
-// ====== TABS ======
+function renderCarCard(c) {
+  const isActive = c.id === state.activeCarId;
+  const isOpen = c.id === state.openCarId;
+
+  const photoHtml = c.photo
+    ? `<img src="${escapeHtml(c.photo)}" alt="car" style="width:100%;border-radius:14px;margin-top:10px;border:1px solid rgba(255,255,255,.08)" />`
+    : `<div class="small" style="margin-top:10px;opacity:.8">Фото пока нет</div>`;
+
+  return `
+    <div class="item" style="cursor:default;align-items:flex-start;gap:12px;flex-direction:column">
+      <div style="width:100%;display:flex;justify-content:space-between;gap:10px;align-items:center">
+        <div>
+          <div class="name">${escapeHtml(c.title)}</div>
+          <div class="small">${escapeHtml(c.carClass)}${isActive ? " • ✅ Активное" : ""}</div>
+          ${c.plate ? `<div class="small">Номер: <b>${escapeHtml(c.plate)}</b></div>` : ""}
+          ${c.vin ? `<div class="small">VIN: <b>${escapeHtml(c.vin)}</b></div>` : ""}
+          ${c.color ? `<div class="small">Цвет: <b>${escapeHtml(c.color)}</b></div>` : ""}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="tab" data-car-act="set-active" data-car-id="${escapeHtml(c.id)}">Выбрать</button>
+          <button class="tab" data-car-act="toggle" data-car-id="${escapeHtml(c.id)}">${isOpen ? "Свернуть" : "Редакт."}</button>
+          <button class="tab" data-car-act="delete" data-car-id="${escapeHtml(c.id)}">✕</button>
+        </div>
+      </div>
+
+      ${photoHtml}
+
+      ${
+        isOpen
+          ? `
+        <div style="width:100%">
+          <div class="hr"></div>
+
+          <div class="label">Госномер</div>
+          <input class="input" id="plate_${escapeHtml(c.id)}" placeholder="A123BC77" value="${escapeHtml(c.plate || "")}" />
+
+          <div class="label">VIN</div>
+          <input class="input" id="vin_${escapeHtml(c.id)}" placeholder="17 символов" value="${escapeHtml(c.vin || "")}" />
+
+          <div class="label">Цвет (для точности фото)</div>
+          <select class="select" id="color_${escapeHtml(c.id)}">
+            ${CAR_COLORS.map((cl) => `<option value="${escapeHtml(cl)}" ${cl === (c.color || "") ? "selected" : ""}>${escapeHtml(cl || "—")}</option>`).join("")}
+          </select>
+
+          <div class="row" style="margin-top:12px">
+            <button class="tab" data-car-act="save" data-car-id="${escapeHtml(c.id)}">Сохранить</button>
+            <button class="btn" data-car-act="vin-photo" data-car-id="${escapeHtml(c.id)}">Decode VIN + фото</button>
+          </div>
+
+          <div class="small" style="margin-top:10px;opacity:.8">
+            Если фото не нашлось — выбери цвет и повтори (или VIN редкий).
+          </div>
+        </div>
+      `
+          : ""
+      }
+    </div>
+  `;
+}
+
+// ===== TABS =====
 tabs.forEach((btn) => {
   btn.addEventListener("click", async () => {
     tabs.forEach((b) => b.classList.remove("active"));
@@ -491,15 +514,12 @@ tabs.forEach((btn) => {
     if (state.tab !== "requests") state.selectedCategory = null;
 
     if (state.tab === "profile") {
-      try {
-        await loadProfile();
-      } catch {}
+      try { await loadProfile(); } catch {}
+      stopPolling();
     }
 
     if (state.tab === "inwork") {
-      try {
-        await loadMyRequests();
-      } catch {}
+      try { await loadMyRequests(); } catch {}
       startPolling();
     } else {
       stopPolling();
@@ -509,16 +529,8 @@ tabs.forEach((btn) => {
   });
 });
 
-// ====== BOOT ======
 (async function boot() {
-  try {
-    await loadProfile();
-  } catch {}
-
-  // не включаем polling сразу — только на вкладке inwork
-  try {
-    await loadMyRequests();
-  } catch {}
-
+  try { await loadProfile(); } catch {}
+  try { await loadMyRequests(); } catch {}
   render();
 })();
