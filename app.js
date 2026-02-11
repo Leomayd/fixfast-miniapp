@@ -25,11 +25,12 @@ let state = {
   tab: "requests",
   selectedCategory: null,
 
-  // garage (stored in Telegram CloudStorage)
+  // from server (Postgres)
   garage: [],
   activeCarId: "",
+  points: 0,
 
-  // inwork
+  // requests
   myRequests: [],
   pollTimer: null,
 };
@@ -84,144 +85,17 @@ async function apiPost(path, body) {
   return data;
 }
 
-// ====== CLOUD STORAGE HELPERS (with fallback localStorage) ======
-function hasCloudStorage() {
-  return !!tg?.CloudStorage?.getItem;
-}
+// ====== PROFILE (garage + points + activeCar) ======
+async function loadProfile() {
+  const data = await apiPost("/api/profile", { initData: getInitData() });
 
-function cloudGet(key) {
-  return new Promise((resolve) => {
-    if (!hasCloudStorage()) return resolve(null);
-    tg.CloudStorage.getItem(key, (err, value) => resolve(err ? null : value ?? null));
-  });
-}
-
-function cloudSet(key, value) {
-  return new Promise((resolve) => {
-    if (!hasCloudStorage()) {
-      try {
-        localStorage.setItem(key, value);
-      } catch {}
-      return resolve(true);
-    }
-    tg.CloudStorage.setItem(key, value, (_err, ok) => resolve(!!ok));
-  });
-}
-
-function localGet(key) {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-// ====== GARAGE (CloudStorage) ======
-const GARAGE_KEY = "garage_v1";
-const ACTIVE_CAR_KEY = "active_car_id_v1";
-
-function uuid() {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-async function loadGarage() {
-  const raw = hasCloudStorage() ? await cloudGet(GARAGE_KEY) : localGet(GARAGE_KEY);
-  const active = hasCloudStorage() ? await cloudGet(ACTIVE_CAR_KEY) : localGet(ACTIVE_CAR_KEY);
-
-  let arr = [];
-  try {
-    arr = raw ? JSON.parse(raw) : [];
-  } catch {
-    arr = [];
-  }
-  if (!Array.isArray(arr)) arr = [];
-
-  state.garage = arr;
-  state.activeCarId = active || arr[0]?.id || "";
-
-  if (!active && state.activeCarId) {
-    await cloudSet(ACTIVE_CAR_KEY, state.activeCarId);
-  }
-}
-
-async function saveGarage() {
-  await cloudSet(GARAGE_KEY, JSON.stringify(state.garage || []));
+  state.garage = Array.isArray(data.garage) ? data.garage : [];
+  state.activeCarId = data.activeCarId || state.garage[0]?.id || "";
+  state.points = Number(data.points || 0) || 0;
 }
 
 function getActiveCar() {
   return (state.garage || []).find((c) => c.id === state.activeCarId) || null;
-}
-
-// ====== BONUSES ( начисляем только когда статус стал DONE в мини-аппе ) ======
-const BONUS_POINTS_KEY = "ff_points_v1";
-const BONUS_AWARDED_DONE_KEY = "ff_awarded_done_v1"; // JSON array of request ids
-
-async function getPoints() {
-  const raw = hasCloudStorage() ? await cloudGet(BONUS_POINTS_KEY) : localGet(BONUS_POINTS_KEY);
-  const n = Number(raw || 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-async function setPoints(value) {
-  const v = String(Math.max(0, Number(value || 0)));
-  await cloudSet(BONUS_POINTS_KEY, v);
-  return Number(v);
-}
-
-async function addPoints(delta) {
-  const cur = await getPoints();
-  return setPoints(cur + Number(delta || 0));
-}
-
-async function getAwardedDoneSet() {
-  const raw = hasCloudStorage()
-    ? await cloudGet(BONUS_AWARDED_DONE_KEY)
-    : localGet(BONUS_AWARDED_DONE_KEY);
-
-  try {
-    const arr = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(arr) ? arr.map(String) : []);
-  } catch {
-    return new Set();
-  }
-}
-
-async function saveAwardedDoneSet(set) {
-  await cloudSet(BONUS_AWARDED_DONE_KEY, JSON.stringify(Array.from(set)));
-}
-
-async function awardBonusesForDoneRequests(items) {
-  if (!Array.isArray(items) || items.length === 0) return;
-
-  const awarded = await getAwardedDoneSet();
-  const newlyDone = items.filter((r) => r?.status === "done" && r?.id && !awarded.has(String(r.id)));
-
-  if (newlyDone.length === 0) return;
-
-  const total = newlyDone.length * 1000;
-
-  // начисляем
-  await addPoints(total);
-
-  // отмечаем
-  newlyDone.forEach((r) => awarded.add(String(r.id)));
-  await saveAwardedDoneSet(awarded);
-
-  // если пользователь сейчас в профиле — сразу перерендерим, чтобы он увидел новые баллы
-  if (state.tab === "profile") {
-    await renderProfile();
-  }
-
-  // мягкое уведомление (не спамит — только за новые done)
-  tg?.showPopup?.({
-    title: "Бонусы начислены 🎁",
-    message: `+${total} бонусов за выполненную заявку`,
-    buttons: [{ type: "ok" }],
-  });
 }
 
 // ====== REQUESTS (server) ======
@@ -229,14 +103,8 @@ async function loadMyRequests() {
   const tgUser = getTgUser();
   if (!tgUser?.id) return;
 
-  // отправляем и initData, и tgUser — сервер возьмёт что ему нужно
-  const data = await apiPost("/api/my-requests", { initData: getInitData(), tgUser });
-
-  const items = data.items || [];
-  state.myRequests = items;
-
-  // ✅ начисление бонусов ТОЛЬКО после того, как DONE реально пришёл в мини-апп
-  await awardBonusesForDoneRequests(items);
+  const data = await apiPost("/api/my-requests", { initData: getInitData() });
+  state.myRequests = data.items || [];
 }
 
 function startPolling() {
@@ -347,11 +215,11 @@ function renderRequestForm(category) {
   const classSel = document.getElementById("carClass");
   const modelInp = document.getElementById("carModel");
 
-  // ✅ автоподстановка из активного авто
+  // автоподстановка из активного авто
   if (activeCar?.carClass) classSel.value = activeCar.carClass;
   if (activeCar?.title) modelInp.value = activeCar.title;
 
-  // ✅ при выборе авто — подставляем класс/модель
+  // при выборе авто — подставляем класс/модель
   carSel?.addEventListener("change", () => {
     const id = carSel.value;
     const chosen = cars.find((c) => c.id === id) || activeCar;
@@ -399,7 +267,6 @@ async function submitRequest(category) {
           carClass: chosenCar.carClass || "",
         }
       : null,
-    tgUser: getTgUser(),
     initData: getInitData(),
   };
 
@@ -414,9 +281,12 @@ async function submitRequest(category) {
 
     state.selectedCategory = null;
 
-    // обновим “В работе”
+    // обновим данные
     try {
       await loadMyRequests();
+    } catch {}
+    try {
+      await loadProfile();
     } catch {}
 
     render();
@@ -443,10 +313,10 @@ function renderInWork() {
           ? items
               .map(
                 (r) => `
-            <div style="padding:10px 2px">
-              <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
-                <div style="font-weight:800">${escapeHtml(r.category)} • ${escapeHtml(r.carModel)}</div>
-                <div style="font-weight:800">${escapeHtml(statusLabel(r.status))}</div>
+            <div class="req">
+              <div class="reqTop">
+                <div class="reqTitle">${escapeHtml(r.category)} • ${escapeHtml(r.carModel)}</div>
+                <div class="reqStatus">${escapeHtml(statusLabel(r.status))}</div>
               </div>
               <div class="small">${escapeHtml(r.description)}</div>
               <div class="small" style="opacity:.75;margin-top:6px">${escapeHtml(formatDate(r.createdAt))}</div>
@@ -481,7 +351,7 @@ async function renderProfile() {
   const u = getTgUser();
   const cars = state.garage || [];
   const activeCar = getActiveCar();
-  const points = await getPoints();
+  const points = state.points || 0;
 
   screen.innerHTML = `
     <div class="card">
@@ -554,25 +424,31 @@ async function renderProfile() {
     </div>
   `;
 
-  // гараж actions
+  // garage actions
   document.querySelectorAll("[data-act]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const act = btn.getAttribute("data-act");
       const id = btn.getAttribute("data-id");
       if (!id) return;
 
-      if (act === "set") {
-        state.activeCarId = id;
-        await cloudSet(ACTIVE_CAR_KEY, id);
-        await renderProfile();
-      }
+      try {
+        if (act === "set") {
+          await apiPost("/api/garage/set-active", { initData: getInitData(), carId: id });
+          await loadProfile();
+          await renderProfile();
+        }
 
-      if (act === "del") {
-        state.garage = (state.garage || []).filter((c) => c.id !== id);
-        if (state.activeCarId === id) state.activeCarId = state.garage[0]?.id || "";
-        await saveGarage();
-        await cloudSet(ACTIVE_CAR_KEY, state.activeCarId || "");
-        await renderProfile();
+        if (act === "del") {
+          await apiPost("/api/garage/delete", { initData: getInitData(), carId: id });
+          await loadProfile();
+          await renderProfile();
+        }
+      } catch (e) {
+        tg?.showPopup?.({
+          title: "Ошибка",
+          message: e?.message || String(e),
+          buttons: [{ type: "ok" }],
+        });
       }
     });
   });
@@ -590,15 +466,18 @@ async function renderProfile() {
       return;
     }
 
-    const car = { id: uuid(), title, carClass, plate: "" };
-    state.garage.unshift(car);
-    if (!state.activeCarId) state.activeCarId = car.id;
-
-    await saveGarage();
-    await cloudSet(ACTIVE_CAR_KEY, state.activeCarId);
-
-    tg?.showPopup?.({ title: "Готово ✅", message: "Авто добавлено", buttons: [{ type: "ok" }] });
-    await renderProfile();
+    try {
+      await apiPost("/api/garage/add", { initData: getInitData(), title, carClass, plate: "" });
+      await loadProfile();
+      tg?.showPopup?.({ title: "Готово ✅", message: "Авто добавлено", buttons: [{ type: "ok" }] });
+      await renderProfile();
+    } catch (e) {
+      tg?.showPopup?.({
+        title: "Ошибка",
+        message: e?.message || String(e),
+        buttons: [{ type: "ok" }],
+      });
+    }
   });
 }
 
@@ -612,7 +491,9 @@ tabs.forEach((btn) => {
     if (state.tab !== "requests") state.selectedCategory = null;
 
     if (state.tab === "profile") {
-      await loadGarage();
+      try {
+        await loadProfile();
+      } catch {}
     }
 
     if (state.tab === "inwork") {
@@ -631,7 +512,7 @@ tabs.forEach((btn) => {
 // ====== BOOT ======
 (async function boot() {
   try {
-    await loadGarage();
+    await loadProfile();
   } catch {}
 
   // не включаем polling сразу — только на вкладке inwork
