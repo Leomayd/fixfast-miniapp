@@ -328,7 +328,7 @@ async function renderProfile() {
       <div class="hr"></div>
 
       <div class="badge">Гараж</div>
-      <div class="small" style="margin-top:6px">VIN → decode → подтягиваем 1 фото модели. Для точности выбери цвет.</div>
+      <div class="small" style="margin-top:6px">VIN → decode → подтягиваем 1 фото модели (Pexels). Для точности выбери цвет.</div>
       <div class="hr"></div>
 
       ${cars.length ? cars.map(renderCarCard).join('<div class="hr"></div>') : `<div class="small">Пока пусто. Добавьте авто ниже.</div>`}
@@ -349,7 +349,6 @@ async function renderProfile() {
     </div>
   `;
 
-  // actions
   document.querySelectorAll("[data-car-act]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const act = btn.getAttribute("data-car-act");
@@ -494,7 +493,7 @@ function renderCarCard(c) {
           </div>
 
           <div class="small" style="margin-top:10px;opacity:.8">
-            Если фото не нашлось — выбери цвет и повтори (или VIN редкий).
+            Если фото не нашлось — выбери цвет и повтори.
           </div>
         </div>
       `
