@@ -9,104 +9,15 @@ if (tg) {
 const screen = document.getElementById("screen");
 const tabs = document.querySelectorAll(".tab");
 
-const CATEGORIES = [
-  "Мойка/шиномонтаж",
-  "ТО/Ремонт",
-  "Детейлинг",
-  "Кузовной ремонт",
-  "Тюнинг",
-];
+const CATEGORIES = ["Мойка/шиномонтаж", "ТО/Ремонт", "Детейлинг", "Кузовной ремонт", "Тюнинг"];
+const CAR_CLASSES = ["Эконом", "Комфорт", "Бизнес", "Премиум", "SUV"];
 
-// ====== GARAGE STORAGE (Telegram CloudStorage -> fallback localStorage) ======
-const GARAGE_KEY = "garage_v1"; // массив авто
-const DEFAULT_CAR_KEY = "garage_default_car_id_v1";
-
-function hasCloudStorage() {
-  return !!tg?.CloudStorage?.getItem;
-}
-
-function cloudGet(key) {
-  return new Promise((resolve) => {
-    if (!hasCloudStorage()) return resolve(null);
-    tg.CloudStorage.getItem(key, (err, value) => {
-      if (err) return resolve(null);
-      resolve(value ?? null);
-    });
-  });
-}
-
-function cloudSet(key, value) {
-  return new Promise((resolve) => {
-    if (!hasCloudStorage()) {
-      try {
-        localStorage.setItem(key, value);
-      } catch {}
-      return resolve(true);
-    }
-    tg.CloudStorage.setItem(key, value, (_err, ok) => resolve(!!ok));
-  });
-}
-
-function localGet(key) {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-async function getGarage() {
-  let raw = null;
-  if (hasCloudStorage()) raw = await cloudGet(GARAGE_KEY);
-  else raw = localGet(GARAGE_KEY);
-
-  if (!raw) return [];
-  try {
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-
-async function setGarage(arr) {
-  const raw = JSON.stringify(arr || []);
-  return cloudSet(GARAGE_KEY, raw);
-}
-
-async function getDefaultCarId() {
-  let raw = null;
-  if (hasCloudStorage()) raw = await cloudGet(DEFAULT_CAR_KEY);
-  else raw = localGet(DEFAULT_CAR_KEY);
-  return raw || "";
-}
-
-async function setDefaultCarId(id) {
-  return cloudSet(DEFAULT_CAR_KEY, String(id || ""));
-}
-
-function uuid() {
-  // достаточно для MVP
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-function normalizePlate(s) {
-  return String(s || "").trim().toUpperCase();
-}
-
-// ====== STATE ======
 let state = {
   tab: "requests",
   selectedCategory: null,
-
-  // form state
-  selectedCarId: "",     // из гаража
-  manualCarModel: "",    // ручной ввод
-  manualCarClass: "Бизнес",
+  garage: { cars: [], activeCarId: null },
+  activeCar: null,
+  myRequests: [],
 };
 
 function getTgUser() {
@@ -115,6 +26,88 @@ function getTgUser() {
   return { id: u.id, first_name: u.first_name, username: u.username };
 }
 
+function initData() {
+  return tg?.initData || "";
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function formatStatus(st) {
+  if (st === "new") return "🆕 Новая";
+  if (st === "inwork") return "🛠️ В работе";
+  if (st === "done") return "✅ Готово";
+  if (st === "canceled") return "❌ Отменено";
+  return st;
+}
+
+function formatDate(ts) {
+  try {
+    return new Date(ts).toLocaleString("ru-RU");
+  } catch {
+    return "";
+  }
+}
+
+// ---------- API helpers ----------
+async function apiPost(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.ok === false) throw new Error(data?.error || "Request failed");
+  return data;
+}
+
+// ---------- Garage ----------
+async function loadGarage() {
+  const data = await apiPost("/api/garage/get", { initData: initData() });
+  state.garage = data.garage || { cars: [], activeCarId: null };
+  state.activeCar = state.garage.cars.find((c) => c.id === state.garage.activeCarId) || null;
+}
+
+async function addCar(title, carClass) {
+  const data = await apiPost("/api/garage/add", {
+    initData: initData(),
+    car: { title, carClass },
+  });
+  state.garage = data.garage;
+  state.activeCar = state.garage.cars.find((c) => c.id === state.garage.activeCarId) || null;
+}
+
+async function setActiveCar(carId) {
+  const data = await apiPost("/api/garage/active", {
+    initData: initData(),
+    carId,
+  });
+  state.garage = data.garage;
+  state.activeCar = state.garage.cars.find((c) => c.id === state.garage.activeCarId) || null;
+}
+
+async function deleteCar(carId) {
+  const data = await apiPost("/api/garage/delete", {
+    initData: initData(),
+    carId,
+  });
+  state.garage = data.garage;
+  state.activeCar = state.garage.cars.find((c) => c.id === state.garage.activeCarId) || null;
+}
+
+// ---------- Requests ----------
+async function loadMyRequests() {
+  const data = await apiPost("/api/my-requests", { initData: initData() });
+  state.myRequests = data.items || [];
+}
+
+// ---------- Render ----------
 function render() {
   if (!screen) return;
   if (state.tab === "requests") return renderRequests();
@@ -122,9 +115,14 @@ function render() {
   if (state.tab === "profile") return renderProfile();
 }
 
-// ====== REQUESTS ======
 function renderRequests() {
   if (state.selectedCategory) return renderRequestForm(state.selectedCategory);
+
+  const active = state.activeCar
+    ? `<div class="small" style="margin-top:8px">🚘 Активное авто: <b>${escapeHtml(
+        state.activeCar.title
+      )}</b> (${escapeHtml(state.activeCar.carClass)})</div>`
+    : `<div class="small" style="margin-top:8px">🚘 Нет активного авто — добавь в «Профиль → Гараж»</div>`;
 
   screen.innerHTML = `
     <div class="card">
@@ -143,76 +141,48 @@ function renderRequests() {
       </div>
 
       <div class="hr"></div>
-      <div class="small">Забор/привоз авто — 5–10 тыс ₽. Работы выполняет подключенный сервис.</div>
+      ${active}
+      <div class="small" style="margin-top:10px">Забор/привоз авто — 5–10 тыс ₽. Работы выполняет подключенный сервис.</div>
     </div>
   `;
 
   document.querySelectorAll(".item").forEach((el) => {
-    el.addEventListener("click", async () => {
-      const cat = el.getAttribute("data-cat");
-      state.selectedCategory = cat;
-
-      // при входе в форму: подхватить дефолтную машину
-      const garage = await getGarage();
-      const defId = await getDefaultCarId();
-      const has = garage.length > 0;
-
-      state.selectedCarId = has ? (defId || garage[0].id) : "";
-      state.manualCarModel = "";
-      state.manualCarClass = "Бизнес";
-
+    el.addEventListener("click", () => {
+      state.selectedCategory = el.getAttribute("data-cat");
       render();
     });
   });
 }
 
-async function renderRequestForm(category) {
-  const garage = await getGarage();
-  const hasGarage = garage.length > 0;
-  const selectedCar = hasGarage ? garage.find((c) => c.id === state.selectedCarId) : null;
-
-  // если есть выбранная из гаража — автозаполним класс/модель в UI логикой ниже
-  const initialCarClass = selectedCar?.carClass || state.manualCarClass || "Бизнес";
-  const initialCarModel = selectedCar?.title || state.manualCarModel || "";
+function renderRequestForm(category) {
+  const cars = state.garage?.cars || [];
+  const activeCarId = state.garage?.activeCarId || "";
 
   screen.innerHTML = `
     <div class="card">
       <div class="badge">Заявка • ${escapeHtml(category)}</div>
       <div class="hr"></div>
 
-      ${
-        hasGarage
-          ? `
-        <div class="label">Автомобиль (из гаража)</div>
-        <select class="select" id="garageCar">
-          ${garage
-            .map((c) => {
-              const label = [c.title, c.plate ? `• ${c.plate}` : ""].filter(Boolean).join(" ");
-              const sel = c.id === state.selectedCarId ? "selected" : "";
-              return `<option value="${escapeHtml(c.id)}" ${sel}>${escapeHtml(label)}</option>`;
-            })
-            .join("")}
-          <option value="__manual__">Другое авто (ввести вручную)</option>
-        </select>
-        <div class="small" style="margin-top:6px">Гараж редактируется во вкладке «Профиль».</div>
-        <div class="hr"></div>
-      `
-          : `
-        <div class="small">Добавь авто в «Профиль → Гараж», чтобы не вводить каждый раз вручную.</div>
-        <div class="hr"></div>
-      `
-      }
+      <div class="label">Авто из гаража</div>
+      <select class="select" id="garageCar">
+        <option value="">— Не выбирать —</option>
+        ${cars
+          .map(
+            (c) =>
+              `<option value="${escapeHtml(c.id)}" ${
+                c.id === activeCarId ? "selected" : ""
+              }>${escapeHtml(c.title)} • ${escapeHtml(c.carClass)}</option>`
+          )
+          .join("")}
+      </select>
 
       <div class="label">Класс машины</div>
       <select class="select" id="carClass">
-        ${["Эконом","Комфорт","Бизнес","Премиум","SUV"].map((x) => {
-          const sel = x === initialCarClass ? "selected" : "";
-          return `<option ${sel}>${x}</option>`;
-        }).join("")}
+        ${CAR_CLASSES.map((cl) => `<option value="${escapeHtml(cl)}">${escapeHtml(cl)}</option>`).join("")}
       </select>
 
       <div class="label">Марка / модель</div>
-      <input class="input" id="carModel" placeholder="Например: BMW 5, Mercedes C, Tesla Model 3" value="${escapeHtml(initialCarModel)}" />
+      <input class="input" id="carModel" placeholder="Например: BMW 5, Mercedes C, Tesla Model 3" />
 
       <div class="label">Описание работы</div>
       <textarea class="textarea" id="description" placeholder="Что нужно сделать: опиши задачу максимально конкретно"></textarea>
@@ -228,63 +198,37 @@ async function renderRequestForm(category) {
     </div>
   `;
 
-  // если выбрали авто из гаража — сделать поля model/class readonly (чтобы не ломали данные)
-  function applyGarageLock(isLocked) {
-    const modelEl = document.getElementById("carModel");
-    const classEl = document.getElementById("carClass");
-    if (!modelEl || !classEl) return;
+  const carSel = document.getElementById("garageCar");
+  const classSel = document.getElementById("carClass");
+  const modelInp = document.getElementById("carModel");
 
-    modelEl.disabled = !!isLocked;
-    classEl.disabled = !!isLocked;
+  // 1) автозаполнение из активного авто
+  if (state.activeCar?.carClass) classSel.value = state.activeCar.carClass;
+  if (state.activeCar?.title) modelInp.value = state.activeCar.title;
 
-    if (isLocked && selectedCar) {
-      modelEl.value = selectedCar.title || "";
-      classEl.value = selectedCar.carClass || "Бизнес";
-    }
-  }
-
-  if (hasGarage && selectedCar) applyGarageLock(true);
-
-  document.getElementById("garageCar")?.addEventListener("change", (e) => {
-    const val = e.target.value;
-    if (val === "__manual__") {
-      state.selectedCarId = "";
-      state.manualCarModel = "";
-      state.manualCarClass = document.getElementById("carClass")?.value || "Бизнес";
-      applyGarageLock(false);
-      return;
-    }
-    state.selectedCarId = val;
-
-    const found = garage.find((c) => c.id === val);
-    if (found) {
-      applyGarageLock(true);
+  // 2) при выборе авто в селекте — обновляем класс/модель
+  carSel?.addEventListener("change", () => {
+    const id = carSel.value;
+    const c = cars.find((x) => x.id === id);
+    if (c) {
+      classSel.value = c.carClass || classSel.value;
+      modelInp.value = c.title || modelInp.value;
     }
   });
 
   document.getElementById("backBtn")?.addEventListener("click", () => {
     state.selectedCategory = null;
-    state.selectedCarId = "";
-    state.manualCarModel = "";
     render();
   });
 
-  document.getElementById("submitBtn")?.addEventListener("click", async () => {
-    // сохранить ручной ввод в state
-    state.manualCarClass = (document.getElementById("carClass")?.value || "Бизнес").trim();
-    state.manualCarModel = (document.getElementById("carModel")?.value || "").trim();
-    await submitRequest(category);
-  });
+  document.getElementById("submitBtn")?.addEventListener("click", () => submitRequest(category));
 }
 
 async function submitRequest(category) {
+  const carId = (document.getElementById("garageCar")?.value || "").trim();
+  const carClass = (document.getElementById("carClass")?.value || "").trim();
+  const carModel = (document.getElementById("carModel")?.value || "").trim();
   const description = (document.getElementById("description")?.value || "").trim();
-
-  const garage = await getGarage();
-  const selectedCar = state.selectedCarId ? garage.find((c) => c.id === state.selectedCarId) : null;
-
-  const carClass = selectedCar?.carClass || (document.getElementById("carClass")?.value || "").trim();
-  const carModel = selectedCar?.title || (document.getElementById("carModel")?.value || "").trim();
 
   if (!carModel || !description) {
     tg?.showPopup?.({
@@ -295,43 +239,27 @@ async function submitRequest(category) {
     return;
   }
 
-  // initData строкой
-  const initData = tg?.initData || "";
-
-  const payload = {
-    category,
-    carClass,
-    carModel,
-    description,
-    car: selectedCar
-      ? {
-          id: selectedCar.id,
-          title: selectedCar.title,
-          plate: selectedCar.plate || "",
-          carClass: selectedCar.carClass || "",
-        }
-      : null,
-    tgUser: getTgUser(),
-    initData,
-  };
+  const car = carId ? (state.garage.cars.find((c) => c.id === carId) || null) : state.activeCar;
 
   try {
-    const res = await fetch(`${API_BASE}/api/request`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+    await apiPost("/api/request", {
+      initData: initData(),
+      category,
+      carClass,
+      carModel,
+      description,
+      car,
+      tgUser: getTgUser(),
     });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.ok === false) throw new Error(data?.error || "Не удалось отправить");
 
     tg?.showPopup?.({
       title: "Заявка отправлена ✅",
-      message: "Менеджер скоро свяжется с вами.",
+      message: "Менеджер скоро свяжется с вами. Статус появится во вкладке «В работе».",
       buttons: [{ type: "ok" }],
     });
 
     state.selectedCategory = null;
+    await loadMyRequests();
     render();
   } catch (e) {
     tg?.showPopup?.({
@@ -342,23 +270,56 @@ async function submitRequest(category) {
   }
 }
 
-// ====== INWORK ======
 function renderInWork() {
+  const items = state.myRequests || [];
+
   screen.innerHTML = `
     <div class="card">
       <div class="badge">В работе</div>
       <div class="hr"></div>
-      <div class="small">Пока пусто. Здесь будут статусы: «менеджер выехал», «доставляем», «в работе», «готова к выдаче».</div>
+
+      ${
+        items.length
+          ? items
+              .map(
+                (r) => `
+            <div class="req">
+              <div class="reqTop">
+                <div class="reqTitle">${escapeHtml(r.category)} • ${escapeHtml(r.carModel)}</div>
+                <div class="reqStatus">${escapeHtml(formatStatus(r.status))}</div>
+              </div>
+              <div class="small">${escapeHtml(r.description)}</div>
+              <div class="small" style="opacity:.75;margin-top:6px">${escapeHtml(formatDate(r.createdAt))}</div>
+            </div>
+          `
+              )
+              .join('<div class="hr"></div>')
+          : `<div class="small">Пока нет заявок. Создайте заявку во вкладке «Заявки».</div>`
+      }
+
+      <div class="hr"></div>
+      <button class="btn" id="refreshBtn">Обновить</button>
     </div>
   `;
+
+  document.getElementById("refreshBtn")?.addEventListener("click", async () => {
+    try {
+      await loadMyRequests();
+      render();
+    } catch (e) {
+      tg?.showPopup?.({
+        title: "Ошибка",
+        message: `Не удалось обновить: ${e?.message || e}`,
+        buttons: [{ type: "ok" }],
+      });
+    }
+  });
 }
 
-// ====== PROFILE + GARAGE UI ======
-async function renderProfile() {
+function renderProfile() {
   const u = getTgUser();
-
-  const garage = await getGarage();
-  const defId = await getDefaultCarId();
+  const cars = state.garage?.cars || [];
+  const activeId = state.garage?.activeCarId;
 
   screen.innerHTML = `
     <div class="card">
@@ -369,187 +330,119 @@ async function renderProfile() {
       <div class="small">${u?.username ? "@" + escapeHtml(u.username) : "Откройте через Telegram"}</div>
 
       <div class="hr"></div>
+      <div class="badge" style="margin-bottom:10px">Гараж</div>
 
-      <div class="badge">Гараж</div>
-      <div class="small" style="margin-top:6px">
-        Добавь автомобили — и в заявках будет быстрый выбор без ручного ввода.
-      </div>
+      ${
+        cars.length
+          ? cars
+              .map(
+                (c) => `
+            <div class="garageItem">
+              <div>
+                <div style="font-weight:800">${escapeHtml(c.title)}</div>
+                <div class="small">${escapeHtml(c.carClass)} ${c.id === activeId ? "• ✅ Активное" : ""}</div>
+              </div>
+              <div class="garageBtns">
+                <button class="chip" data-act="active" data-id="${escapeHtml(c.id)}">Выбрать</button>
+                <button class="chip danger" data-act="del" data-id="${escapeHtml(c.id)}">✕</button>
+              </div>
+            </div>
+          `
+              )
+              .join("")
+          : `<div class="small">Авто пока нет. Добавьте ниже.</div>`
+      }
 
-      <div class="hr"></div>
-
-      <div id="garageList">
-        ${
-          garage.length === 0
-            ? `<div class="small">Пока пусто. Нажми «Добавить авто».</div>`
-            : garage
-                .map((c) => {
-                  const isDef = c.id === defId;
-                  const line = [c.title, c.plate ? `• ${c.plate}` : ""].filter(Boolean).join(" ");
-                  return `
-                    <div class="item" data-car="${escapeHtml(c.id)}" style="display:flex;justify-content:space-between;align-items:center">
-                      <div>
-                        <div class="name">${escapeHtml(line)}</div>
-                        <div class="small">${escapeHtml(c.carClass || "")}${isDef ? " • по умолчанию" : ""}</div>
-                      </div>
-                      <div class="arrow">›</div>
-                    </div>
-                  `;
-                })
-                .join("")
-        }
-      </div>
-
-      <div class="row" style="margin-top:12px">
-        <button class="btn" id="addCarBtn">➕ Добавить авто</button>
-      </div>
-
-      <div class="hr"></div>
-
-      <div class="row">
-        <div class="card" style="padding:12px">
-          <div class="small">Баланс</div>
-          <div style="font-size:18px;font-weight:800;margin-top:4px">0 ₽</div>
-        </div>
-        <div class="card" style="padding:12px">
-          <div class="small">Баллы</div>
-          <div style="font-size:18px;font-weight:800;margin-top:4px">0</div>
-        </div>
-      </div>
-
-      <div class="hr"></div>
-      <div class="small">Следующий шаг: фото авто, VIN и история заказов.</div>
-    </div>
-  `;
-
-  document.getElementById("addCarBtn")?.addEventListener("click", () => openAddCarPopup());
-
-  // клик по авто -> actions (default/delete)
-  document.querySelectorAll("[data-car]").forEach((el) => {
-    el.addEventListener("click", async () => {
-      const id = el.getAttribute("data-car");
-      const car = garage.find((x) => x.id === id);
-      if (!car) return;
-
-      const buttons = [
-        { id: "set_default", type: "default", text: "Сделать по умолчанию" },
-        { id: "delete", type: "destructive", text: "Удалить" },
-        { type: "cancel" },
-      ];
-
-      tg?.showPopup?.({
-        title: car.title,
-        message: (car.plate ? `Номер: ${car.plate}\n` : "") + (car.carClass ? `Класс: ${car.carClass}` : ""),
-        buttons,
-      }, async (btnId) => {
-        if (btnId === "set_default") {
-          await setDefaultCarId(car.id);
-          renderProfile();
-        }
-        if (btnId === "delete") {
-          const next = garage.filter((x) => x.id !== car.id);
-          await setGarage(next);
-          const curDef = await getDefaultCarId();
-          if (curDef === car.id) {
-            await setDefaultCarId(next[0]?.id || "");
-          }
-          renderProfile();
-        }
-      });
-    });
-  });
-}
-
-function openAddCarPopup() {
-  // Telegram showPopup не умеет вводы, поэтому рендерим "экран" ввода прямо в Profile UI (быстро и надёжно)
-  // Сохраним текущий таб
-  const u = getTgUser();
-
-  screen.innerHTML = `
-    <div class="card">
-      <div class="badge">Добавить авто</div>
       <div class="hr"></div>
 
       <div class="label">Марка / модель</div>
-      <input class="input" id="g_title" placeholder="Например: BMW 5, Mercedes C, Tesla Model 3" />
-
-      <div class="label">Госномер (необязательно)</div>
-      <input class="input" id="g_plate" placeholder="A777AA77" />
+      <input class="input" id="newCarTitle" placeholder="Например: BMW 5" />
 
       <div class="label">Класс</div>
-      <select class="select" id="g_class">
-        <option>Эконом</option>
-        <option>Комфорт</option>
-        <option selected>Бизнес</option>
-        <option>Премиум</option>
-        <option>SUV</option>
+      <select class="select" id="newCarClass">
+        ${CAR_CLASSES.map((cl) => `<option value="${escapeHtml(cl)}">${escapeHtml(cl)}</option>`).join("")}
       </select>
 
       <div class="row" style="margin-top:12px">
-        <button class="tab" id="g_back">Назад</button>
-        <button class="btn" id="g_save">Сохранить</button>
+        <button class="btn" id="addCarBtn">Добавить авто</button>
       </div>
 
-      <div class="small" style="margin-top:10px">
-        Авто сохранится в Telegram (CloudStorage) для аккаунта ${escapeHtml(u?.first_name ?? "")}.
+      <div class="small" style="margin-top:10px;opacity:.8">
+        Активное авто автоматически подставляется в заявке.
       </div>
     </div>
   `;
 
-  document.getElementById("g_back")?.addEventListener("click", () => renderProfile());
+  // гараж actions
+  document.querySelectorAll(".chip").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const act = btn.getAttribute("data-act");
+      const id = btn.getAttribute("data-id");
+      try {
+        if (act === "active") {
+          await setActiveCar(id);
+          render();
+        }
+        if (act === "del") {
+          await deleteCar(id);
+          render();
+        }
+      } catch (e) {
+        tg?.showPopup?.({
+          title: "Ошибка",
+          message: e?.message || String(e),
+          buttons: [{ type: "ok" }],
+        });
+      }
+    });
+  });
 
-  document.getElementById("g_save")?.addEventListener("click", async () => {
-    const title = (document.getElementById("g_title")?.value || "").trim();
-    const plate = normalizePlate(document.getElementById("g_plate")?.value || "");
-    const carClass = (document.getElementById("g_class")?.value || "Бизнес").trim();
+  document.getElementById("addCarBtn")?.addEventListener("click", async () => {
+    const title = (document.getElementById("newCarTitle")?.value || "").trim();
+    const carClass = (document.getElementById("newCarClass")?.value || "").trim();
 
     if (!title) {
-      tg?.showPopup?.({
-        title: "Заполните поле",
-        message: "Нужна «Марка / модель».",
-        buttons: [{ type: "ok" }],
-      });
+      tg?.showPopup?.({ title: "Заполните", message: "Введите марку/модель", buttons: [{ type: "ok" }] });
       return;
     }
 
-    const garage = await getGarage();
-    const car = { id: uuid(), title, plate, carClass, createdAt: Date.now() };
-
-    garage.unshift(car);
-    await setGarage(garage);
-
-    // если это первая машина — сделаем дефолтной
-    const defId = await getDefaultCarId();
-    if (!defId) await setDefaultCarId(car.id);
-
-    tg?.showPopup?.({
-      title: "Готово ✅",
-      message: "Автомобиль добавлен в гараж.",
-      buttons: [{ type: "ok" }],
-    });
-
-    renderProfile();
+    try {
+      await addCar(title, carClass || "Бизнес");
+      tg?.showPopup?.({ title: "Готово ✅", message: "Авто добавлено в гараж", buttons: [{ type: "ok" }] });
+      render();
+    } catch (e) {
+      tg?.showPopup?.({ title: "Ошибка", message: e?.message || String(e), buttons: [{ type: "ok" }] });
+    }
   });
 }
 
-// ====== TABS ======
+// tabs
 tabs.forEach((btn) => {
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", async () => {
     tabs.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     state.tab = btn.dataset.tab;
     if (state.tab !== "requests") state.selectedCategory = null;
+
+    // refresh on tab open
+    try {
+      if (state.tab === "inwork") await loadMyRequests();
+      if (state.tab === "profile") await loadGarage();
+    } catch (e) {
+      // silent
+    }
+
     render();
   });
 });
 
-// ====== UTILS ======
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-render();
+// boot
+(async function boot() {
+  try {
+    await loadGarage();
+  } catch {}
+  try {
+    await loadMyRequests();
+  } catch {}
+  render();
+})();
