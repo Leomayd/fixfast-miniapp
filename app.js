@@ -1,3 +1,4 @@
+// fixfast-miniapp/app.js
 const API_BASE = "https://fixfastautobot.onrender.com";
 
 const tg = window.Telegram?.WebApp;
@@ -9,13 +10,22 @@ if (tg) {
 const screen = document.getElementById("screen");
 const tabs = document.querySelectorAll(".tab");
 
-const CATEGORIES = ["Мойка/шиномонтаж", "ТО/Ремонт", "Детейлинг", "Кузовной ремонт", "Тюнинг"];
+const CATEGORIES = [
+  "Мойка/шиномонтаж",
+  "ТО/Ремонт",
+  "Детейлинг",
+  "Кузовной ремонт",
+  "Тюнинг",
+];
 
+const CAR_CLASSES = ["Эконом", "Комфорт", "Бизнес", "Премиум", "SUV"];
+
+// ====== STATE ======
 let state = {
   tab: "requests",
   selectedCategory: null,
 
-  // garage
+  // garage (stored in Telegram CloudStorage)
   garage: [],
   activeCarId: "",
 
@@ -24,12 +34,18 @@ let state = {
   pollTimer: null,
 };
 
+// ====== TELEGRAM USER ======
 function getTgUser() {
   const u = tg?.initDataUnsafe?.user;
   if (!u) return null;
   return { id: u.id, first_name: u.first_name, username: u.username };
 }
 
+function getInitData() {
+  return tg?.initData || "";
+}
+
+// ====== HTML ESCAPE ======
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -39,6 +55,7 @@ function escapeHtml(s) {
     .replaceAll("'", "&#39;");
 }
 
+// ====== STATUS LABELS ======
 function statusLabel(st) {
   if (st === "new") return "🆕 Новая";
   if (st === "inwork") return "🛠️ В работе";
@@ -55,21 +72,19 @@ function formatDate(ts) {
   }
 }
 
+// ====== API ======
 async function apiPost(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body || {}),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data?.ok === false) throw new Error(data?.error || `HTTP ${res.status}`);
   return data;
 }
 
-// ---------- Garage storage (CloudStorage, fallback localStorage) ----------
-const GARAGE_KEY = "garage_v1";
-const ACTIVE_CAR_KEY = "active_car_id_v1";
-
+// ====== CLOUD STORAGE HELPERS (with fallback localStorage) ======
 function hasCloudStorage() {
   return !!tg?.CloudStorage?.getItem;
 }
@@ -84,7 +99,9 @@ function cloudGet(key) {
 function cloudSet(key, value) {
   return new Promise((resolve) => {
     if (!hasCloudStorage()) {
-      try { localStorage.setItem(key, value); } catch {}
+      try {
+        localStorage.setItem(key, value);
+      } catch {}
       return resolve(true);
     }
     tg.CloudStorage.setItem(key, value, (_err, ok) => resolve(!!ok));
@@ -92,25 +109,16 @@ function cloudSet(key, value) {
 }
 
 function localGet(key) {
-  try { return localStorage.getItem(key); } catch { return null; }
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
 
-async function loadGarage() {
-  const raw = hasCloudStorage() ? await cloudGet(GARAGE_KEY) : localGet(GARAGE_KEY);
-  const active = hasCloudStorage() ? await cloudGet(ACTIVE_CAR_KEY) : localGet(ACTIVE_CAR_KEY);
-
-  let arr = [];
-  try { arr = raw ? JSON.parse(raw) : []; } catch { arr = []; }
-  if (!Array.isArray(arr)) arr = [];
-
-  state.garage = arr;
-  state.activeCarId = active || (arr[0]?.id || "");
-  if (!active && state.activeCarId) await cloudSet(ACTIVE_CAR_KEY, state.activeCarId);
-}
-
-async function saveGarage() {
-  await cloudSet(GARAGE_KEY, JSON.stringify(state.garage || []));
-}
+// ====== GARAGE (CloudStorage) ======
+const GARAGE_KEY = "garage_v1";
+const ACTIVE_CAR_KEY = "active_car_id_v1";
 
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -120,14 +128,124 @@ function uuid() {
   });
 }
 
-// ---------- Inwork polling ----------
+async function loadGarage() {
+  const raw = hasCloudStorage() ? await cloudGet(GARAGE_KEY) : localGet(GARAGE_KEY);
+  const active = hasCloudStorage() ? await cloudGet(ACTIVE_CAR_KEY) : localGet(ACTIVE_CAR_KEY);
+
+  let arr = [];
+  try {
+    arr = raw ? JSON.parse(raw) : [];
+  } catch {
+    arr = [];
+  }
+  if (!Array.isArray(arr)) arr = [];
+
+  state.garage = arr;
+  state.activeCarId = active || arr[0]?.id || "";
+
+  if (!active && state.activeCarId) {
+    await cloudSet(ACTIVE_CAR_KEY, state.activeCarId);
+  }
+}
+
+async function saveGarage() {
+  await cloudSet(GARAGE_KEY, JSON.stringify(state.garage || []));
+}
+
+function getActiveCar() {
+  return (state.garage || []).find((c) => c.id === state.activeCarId) || null;
+}
+
+// ====== BONUSES ( начисляем только когда статус стал DONE в мини-аппе ) ======
+const BONUS_POINTS_KEY = "ff_points_v1";
+const BONUS_AWARDED_DONE_KEY = "ff_awarded_done_v1"; // JSON array of request ids
+
+async function getPoints() {
+  const raw = hasCloudStorage() ? await cloudGet(BONUS_POINTS_KEY) : localGet(BONUS_POINTS_KEY);
+  const n = Number(raw || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function setPoints(value) {
+  const v = String(Math.max(0, Number(value || 0)));
+  await cloudSet(BONUS_POINTS_KEY, v);
+  return Number(v);
+}
+
+async function addPoints(delta) {
+  const cur = await getPoints();
+  return setPoints(cur + Number(delta || 0));
+}
+
+async function getAwardedDoneSet() {
+  const raw = hasCloudStorage()
+    ? await cloudGet(BONUS_AWARDED_DONE_KEY)
+    : localGet(BONUS_AWARDED_DONE_KEY);
+
+  try {
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+async function saveAwardedDoneSet(set) {
+  await cloudSet(BONUS_AWARDED_DONE_KEY, JSON.stringify(Array.from(set)));
+}
+
+async function awardBonusesForDoneRequests(items) {
+  if (!Array.isArray(items) || items.length === 0) return;
+
+  const awarded = await getAwardedDoneSet();
+  const newlyDone = items.filter((r) => r?.status === "done" && r?.id && !awarded.has(String(r.id)));
+
+  if (newlyDone.length === 0) return;
+
+  const total = newlyDone.length * 1000;
+
+  // начисляем
+  await addPoints(total);
+
+  // отмечаем
+  newlyDone.forEach((r) => awarded.add(String(r.id)));
+  await saveAwardedDoneSet(awarded);
+
+  // если пользователь сейчас в профиле — сразу перерендерим, чтобы он увидел новые баллы
+  if (state.tab === "profile") {
+    await renderProfile();
+  }
+
+  // мягкое уведомление (не спамит — только за новые done)
+  tg?.showPopup?.({
+    title: "Бонусы начислены 🎁",
+    message: `+${total} бонусов за выполненную заявку`,
+    buttons: [{ type: "ok" }],
+  });
+}
+
+// ====== REQUESTS (server) ======
+async function loadMyRequests() {
+  const tgUser = getTgUser();
+  if (!tgUser?.id) return;
+
+  // отправляем и initData, и tgUser — сервер возьмёт что ему нужно
+  const data = await apiPost("/api/my-requests", { initData: getInitData(), tgUser });
+
+  const items = data.items || [];
+  state.myRequests = items;
+
+  // ✅ начисление бонусов ТОЛЬКО после того, как DONE реально пришёл в мини-апп
+  await awardBonusesForDoneRequests(items);
+}
+
 function startPolling() {
   stopPolling();
   state.pollTimer = setInterval(async () => {
     if (state.tab !== "inwork") return;
     try {
       await loadMyRequests();
-      renderInWork(); // быстрый перерендер без пересборки всего
+      renderInWork();
     } catch {}
   }, 5000);
 }
@@ -137,14 +255,7 @@ function stopPolling() {
   state.pollTimer = null;
 }
 
-async function loadMyRequests() {
-  const tgUser = getTgUser();
-  if (!tgUser?.id) return;
-  const data = await apiPost("/api/my-requests", { tgUser });
-  state.myRequests = data.items || [];
-}
-
-// ---------- Render ----------
+// ====== RENDER SWITCH ======
 function render() {
   if (!screen) return;
   if (state.tab === "requests") return renderRequests();
@@ -152,17 +263,18 @@ function render() {
   if (state.tab === "profile") return renderProfile();
 }
 
+// ====== REQUESTS TAB ======
 function renderRequests() {
   if (state.selectedCategory) return renderRequestForm(state.selectedCategory);
 
-  const activeCar = state.garage.find((c) => c.id === state.activeCarId) || null;
+  const activeCar = getActiveCar();
   const activeLine = activeCar
     ? `🚘 Активное авто: <b>${escapeHtml(activeCar.title)}</b> • ${escapeHtml(activeCar.carClass)}`
     : `🚘 Добавьте авто в «Профиль → Гараж», чтобы подставлялось автоматически`;
 
   screen.innerHTML = `
     <div class="card">
-      <div class="badge">Выберите услугу, добавьте ваш автомобиль, опишите работы — мы заберем авто в течение часа.</div>
+      <div class="badge">Выберите услугу, добавьте авто, опишите работы — мы быстро возьмём заявку.</div>
       <div class="hr"></div>
 
       <div class="grid">
@@ -193,7 +305,7 @@ function renderRequests() {
 
 function renderRequestForm(category) {
   const cars = state.garage || [];
-  const activeCar = cars.find((c) => c.id === state.activeCarId) || null;
+  const activeCar = getActiveCar();
 
   screen.innerHTML = `
     <div class="card">
@@ -206,18 +318,16 @@ function renderRequestForm(category) {
         ${cars
           .map((c) => {
             const sel = c.id === state.activeCarId ? "selected" : "";
-            return `<option value="${escapeHtml(c.id)}" ${sel}>${escapeHtml(c.title)} • ${escapeHtml(c.carClass)}</option>`;
+            return `<option value="${escapeHtml(c.id)}" ${sel}>${escapeHtml(c.title)} • ${escapeHtml(
+              c.carClass
+            )}</option>`;
           })
           .join("")}
       </select>
 
       <div class="label">Класс машины</div>
       <select class="select" id="carClass">
-        <option>Эконом</option>
-        <option>Комфорт</option>
-        <option>Бизнес</option>
-        <option>Премиум</option>
-        <option>SUV</option>
+        ${CAR_CLASSES.map((cl) => `<option value="${escapeHtml(cl)}">${escapeHtml(cl)}</option>`).join("")}
       </select>
 
       <div class="label">Марка / модель</div>
@@ -237,11 +347,11 @@ function renderRequestForm(category) {
   const classSel = document.getElementById("carClass");
   const modelInp = document.getElementById("carModel");
 
-  // ✅ Автоподстановка из активного авто
+  // ✅ автоподстановка из активного авто
   if (activeCar?.carClass) classSel.value = activeCar.carClass;
   if (activeCar?.title) modelInp.value = activeCar.title;
 
-  // ✅ При выборе авто — подставляем класс/модель
+  // ✅ при выборе авто — подставляем класс/модель
   carSel?.addEventListener("change", () => {
     const id = carSel.value;
     const chosen = cars.find((c) => c.id === id) || activeCar;
@@ -273,7 +383,7 @@ async function submitRequest(category) {
   }
 
   const cars = state.garage || [];
-  const activeCar = cars.find((c) => c.id === state.activeCarId) || null;
+  const activeCar = getActiveCar();
   const chosenCar = carId ? cars.find((c) => c.id === carId) || null : activeCar;
 
   const payload = {
@@ -282,10 +392,15 @@ async function submitRequest(category) {
     carModel,
     description,
     car: chosenCar
-      ? { id: chosenCar.id, title: chosenCar.title, plate: chosenCar.plate || "", carClass: chosenCar.carClass }
+      ? {
+          id: chosenCar.id,
+          title: chosenCar.title,
+          plate: chosenCar.plate || "",
+          carClass: chosenCar.carClass || "",
+        }
       : null,
     tgUser: getTgUser(),
-    initData: tg?.initData || "",
+    initData: getInitData(),
   };
 
   try {
@@ -293,14 +408,17 @@ async function submitRequest(category) {
 
     tg?.showPopup?.({
       title: "Заявка отправлена ✅",
-      message: "Статус появится во вкладке «В работе».",
+      message: "После завершения работ вы получите 1000 бонусов. Статус появится во вкладке «В работе».",
       buttons: [{ type: "ok" }],
     });
 
     state.selectedCategory = null;
 
-    // сразу обновим
-    await loadMyRequests();
+    // обновим “В работе”
+    try {
+      await loadMyRequests();
+    } catch {}
+
     render();
   } catch (e) {
     tg?.showPopup?.({
@@ -311,6 +429,7 @@ async function submitRequest(category) {
   }
 }
 
+// ====== INWORK TAB ======
 function renderInWork() {
   const items = state.myRequests || [];
 
@@ -326,8 +445,8 @@ function renderInWork() {
                 (r) => `
             <div style="padding:10px 2px">
               <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
-                <div style="font-weight:700">${escapeHtml(r.category)} • ${escapeHtml(r.carModel)}</div>
-                <div style="font-weight:700">${escapeHtml(statusLabel(r.status))}</div>
+                <div style="font-weight:800">${escapeHtml(r.category)} • ${escapeHtml(r.carModel)}</div>
+                <div style="font-weight:800">${escapeHtml(statusLabel(r.status))}</div>
               </div>
               <div class="small">${escapeHtml(r.description)}</div>
               <div class="small" style="opacity:.75;margin-top:6px">${escapeHtml(formatDate(r.createdAt))}</div>
@@ -348,45 +467,47 @@ function renderInWork() {
       await loadMyRequests();
       renderInWork();
     } catch (e) {
-      tg?.showPopup?.({ title: "Ошибка", message: e?.message || String(e), buttons: [{ type: "ok" }] });
+      tg?.showPopup?.({
+        title: "Ошибка",
+        message: e?.message || String(e),
+        buttons: [{ type: "ok" }],
+      });
     }
   });
 }
 
-function renderProfile() {
+// ====== PROFILE TAB ======
+async function renderProfile() {
   const u = getTgUser();
   const cars = state.garage || [];
-  const activeCar = cars.find((c) => c.id === state.activeCarId) || null;
+  const activeCar = getActiveCar();
+  const points = await getPoints();
 
   screen.innerHTML = `
     <div class="card">
       <div class="badge">Профиль</div>
       <div class="hr"></div>
 
-      <div style="font-size:16px;font-weight:700">${escapeHtml(u?.first_name ?? "Гость")}</div>
+      <div style="font-size:16px;font-weight:800">${escapeHtml(u?.first_name ?? "Гость")}</div>
       <div class="small">${u?.username ? "@" + escapeHtml(u.username) : "Откройте через Telegram"}</div>
 
       <div class="hr"></div>
 
-      <!-- ✅ Вернули баланс/баллы -->
       <div class="row">
         <div class="card" style="padding:12px">
           <div class="small">Баланс</div>
-          <div style="font-size:18px;font-weight:800;margin-top:4px">0 ₽</div>
+          <div style="font-size:18px;font-weight:900;margin-top:4px">0 ₽</div>
         </div>
         <div class="card" style="padding:12px">
           <div class="small">Баллы</div>
-          <div style="font-size:18px;font-weight:800;margin-top:4px">0</div>
+          <div style="font-size:18px;font-weight:900;margin-top:4px">${points}</div>
         </div>
       </div>
 
       <div class="hr"></div>
 
       <div class="badge">Гараж</div>
-      <div class="small" style="margin-top:6px">
-        Активное авто подставляется в заявку автоматически.
-      </div>
-
+      <div class="small" style="margin-top:6px">Активное авто подставляется в заявку автоматически.</div>
       <div class="hr"></div>
 
       ${
@@ -408,7 +529,7 @@ function renderProfile() {
                 `;
               })
               .join("")
-          : `<div class="small">Пока пусто. Добавь авто ниже.</div>`
+          : `<div class="small">Пока пусто. Добавьте авто ниже.</div>`
       }
 
       <div class="hr"></div>
@@ -418,11 +539,7 @@ function renderProfile() {
 
       <div class="label">Класс</div>
       <select class="select" id="newCarClass">
-        <option>Эконом</option>
-        <option>Комфорт</option>
-        <option selected>Бизнес</option>
-        <option>Премиум</option>
-        <option>SUV</option>
+        ${CAR_CLASSES.map((cl) => `<option ${cl === "Бизнес" ? "selected" : ""}>${escapeHtml(cl)}</option>`).join("")}
       </select>
 
       <div class="row" style="margin-top:12px">
@@ -430,12 +547,14 @@ function renderProfile() {
       </div>
 
       <div class="small" style="margin-top:10px;opacity:.8">
-        Сейчас активное авто: ${activeCar ? `<b>${escapeHtml(activeCar.title)}</b> • ${escapeHtml(activeCar.carClass)}` : "—"}
+        Сейчас активное авто: ${
+          activeCar ? `<b>${escapeHtml(activeCar.title)}</b> • ${escapeHtml(activeCar.carClass)}` : "—"
+        }
       </div>
     </div>
   `;
 
-  // actions
+  // гараж actions
   document.querySelectorAll("[data-act]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const act = btn.getAttribute("data-act");
@@ -445,7 +564,7 @@ function renderProfile() {
       if (act === "set") {
         state.activeCarId = id;
         await cloudSet(ACTIVE_CAR_KEY, id);
-        renderProfile();
+        await renderProfile();
       }
 
       if (act === "del") {
@@ -453,7 +572,7 @@ function renderProfile() {
         if (state.activeCarId === id) state.activeCarId = state.garage[0]?.id || "";
         await saveGarage();
         await cloudSet(ACTIVE_CAR_KEY, state.activeCarId || "");
-        renderProfile();
+        await renderProfile();
       }
     });
   });
@@ -463,7 +582,11 @@ function renderProfile() {
     const carClass = (document.getElementById("newCarClass")?.value || "Бизнес").trim();
 
     if (!title) {
-      tg?.showPopup?.({ title: "Заполните", message: "Введите марку/модель", buttons: [{ type: "ok" }] });
+      tg?.showPopup?.({
+        title: "Заполните",
+        message: "Введите марку/модель",
+        buttons: [{ type: "ok" }],
+      });
       return;
     }
 
@@ -475,36 +598,46 @@ function renderProfile() {
     await cloudSet(ACTIVE_CAR_KEY, state.activeCarId);
 
     tg?.showPopup?.({ title: "Готово ✅", message: "Авто добавлено", buttons: [{ type: "ok" }] });
-    renderProfile();
+    await renderProfile();
   });
 }
 
-// tabs
+// ====== TABS ======
 tabs.forEach((btn) => {
   btn.addEventListener("click", async () => {
     tabs.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
+
     state.tab = btn.dataset.tab;
     if (state.tab !== "requests") state.selectedCategory = null;
 
-    if (state.tab === "inwork") {
-      await loadMyRequests();
-      startPolling(); // ✅ авто-обновление статусов
-    } else {
-      stopPolling();
-    }
-
     if (state.tab === "profile") {
       await loadGarage();
+    }
+
+    if (state.tab === "inwork") {
+      try {
+        await loadMyRequests();
+      } catch {}
+      startPolling();
+    } else {
+      stopPolling();
     }
 
     render();
   });
 });
 
-// boot
+// ====== BOOT ======
 (async function boot() {
-  await loadGarage();
-  try { await loadMyRequests(); } catch {}
+  try {
+    await loadGarage();
+  } catch {}
+
+  // не включаем polling сразу — только на вкладке inwork
+  try {
+    await loadMyRequests();
+  } catch {}
+
   render();
 })();
