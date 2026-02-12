@@ -649,3 +649,49 @@ observer.observe(document.body, {
 
 // Первичный запуск
 attachPressEffects();
+
+// ===============================
+// Keyboard anti-jump стабилизация
+// ===============================
+
+let scrollYBeforeKeyboard = 0;
+
+function lockBody() {
+  scrollYBeforeKeyboard = window.scrollY;
+  document.body.classList.add("keyboard-open");
+  document.body.style.top = `-${scrollYBeforeKeyboard}px`;
+}
+
+function unlockBody() {
+  document.body.classList.remove("keyboard-open");
+  document.body.style.top = "";
+  window.scrollTo(0, scrollYBeforeKeyboard);
+}
+
+function setupKeyboardFix() {
+  document.addEventListener("focusin", (e) => {
+    const tag = e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") {
+      lockBody();
+    }
+  });
+
+  document.addEventListener("focusout", (e) => {
+    const tag = e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") {
+      setTimeout(() => unlockBody(), 100);
+    }
+  });
+
+  // Доп. стабилизация через visualViewport
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => {
+      document.documentElement.style.height =
+        window.visualViewport.height + "px";
+    });
+  }
+}
+
+// запускаем один раз
+setupKeyboardFix();
+
