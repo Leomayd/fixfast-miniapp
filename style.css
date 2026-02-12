@@ -247,5 +247,13 @@ body.keyboard-open {
   position: fixed;
   width: 100%;
 }
+/* ===== keyboard scroll helper ===== */
+:root{
+  --kb: 0px; /* высота клавиатуры */
+}
 
+/* чтобы scrollIntoView учитывал клавиатуру */
+body{
+  scroll-padding-bottom: calc(var(--kb) + 24px);
+}
 
