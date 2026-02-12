@@ -692,6 +692,70 @@ function setupKeyboardFix() {
   }
 }
 
+// ===============================
+// iOS Telegram keyboard jump fix
+// ===============================
+
+(function setupKeyboardScrollFix() {
+  const vv = window.visualViewport;
+
+  function updateKeyboardVar() {
+    if (!vv) return;
+    // высота "съеденная" клавиатурой
+    const kb = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop || 0));
+    document.documentElement.style.setProperty("--kb", kb + "px");
+  }
+
+  function scrollFieldIntoView(el) {
+    if (!el || !(el instanceof HTMLElement)) return;
+
+    // Делаем 2 прохода: сразу и после подъёма клавиатуры
+    const doScroll = () => {
+      const rect = el.getBoundingClientRect();
+
+      const viewportH = vv ? vv.height : window.innerHeight;
+      const topSafe = 90;   // чтобы не уезжало под шапку Telegram
+      const bottomSafe = 16;
+
+      // если поле уже в зоне видимости — ничего не делаем
+      if (rect.top >= topSafe && rect.bottom <= viewportH - bottomSafe) return;
+
+      // целевая позиция: центрируем поле по высоте доступного viewport
+      const targetY = window.scrollY + rect.top - (viewportH / 2) + (rect.height / 2);
+
+      window.scrollTo({
+        top: Math.max(0, targetY),
+        behavior: "auto" // без плавности — меньше "прыжка"
+      });
+    };
+
+    // 1) сразу
+    doScroll();
+    // 2) после анимации клавиатуры
+    setTimeout(doScroll, 50);
+    setTimeout(doScroll, 150);
+  }
+
+  // обновляем переменную клавиатуры
+  if (vv) {
+    vv.addEventListener("resize", updateKeyboardVar);
+    vv.addEventListener("scroll", updateKeyboardVar);
+  }
+  window.addEventListener("resize", updateKeyboardVar);
+  updateKeyboardVar();
+
+  // при фокусе — мгновенно выравниваем позицию
+  document.addEventListener("focusin", (e) => {
+    const t = e.target;
+    if (!t) return;
+    const tag = t.tagName;
+    if (tag === "INPUT"  tag === "TEXTAREA"  tag === "SELECT") {
+      // маленькая задержка чтобы Telegram успел применить фокус
+      setTimeout(() => scrollFieldIntoView(t), 0);
+    }
+  });
+})();
+
 // запускаем один раз
 setupKeyboardFix();
 
