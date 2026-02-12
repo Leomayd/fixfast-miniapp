@@ -8,28 +8,70 @@
   --btnText:#0b0f14;
   --chip:#141e2a;
   --danger:#ff4d4d;
+
+  /* стабилизация высоты при клавиатуре */
+  --vvh: 100vh;
 }
 
-*{box-sizing:border-box}
-body{
+/* ================= BASE ================= */
+
+*{
+  box-sizing:border-box;
+}
+
+html, body{
   margin:0;
+  padding:0;
   background:var(--bg);
   color:var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+
+  height:100%;
+  overflow-x:hidden;
+
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
 }
+
+body{
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
+
+/* ================= WRAP ================= */
 
 .wrap{
   max-width:520px;
   margin:0 auto;
   padding:16px 14px 90px;
+  min-height:var(--vvh);
 }
 
-.head{margin-bottom:14px}
-.title{font-size:34px;font-weight:900;letter-spacing:-.5px}
-.sub{color:var(--muted);margin-top:4px}
+/* ================= HEADER ================= */
+
+.head{
+  margin-bottom:14px;
+}
+
+.title{
+  font-size:34px;
+  font-weight:900;
+  letter-spacing:-.5px;
+}
+
+.sub{
+  color:var(--muted);
+  margin-top:4px;
+}
+
+/* ================= CARDS ================= */
 
 .card{
-  background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+  background:linear-gradient(
+    180deg,
+    rgba(255,255,255,.05),
+    rgba(255,255,255,.02)
+  );
   border:1px solid var(--stroke);
   border-radius:18px;
   padding:14px;
@@ -52,36 +94,82 @@ body{
   margin:12px 0;
 }
 
-.small{color:var(--muted);font-size:13px;line-height:1.35}
+.small{
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.35;
+}
 
-.grid{display:flex;flex-direction:column;gap:10px}
+/* ================= GRID ITEMS ================= */
+
+.grid{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
 .item{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  padding:14px 14px;
+  padding:14px;
   border-radius:16px;
   border:1px solid rgba(255,255,255,.08);
   background:rgba(0,0,0,.10);
   cursor:pointer;
 }
-.item:active{transform:scale(.99)}
-.name{font-weight:900;font-size:18px}
-.arrow{opacity:.6;font-size:22px}
 
-.label{margin-top:10px;margin-bottom:6px;color:var(--muted);font-size:13px;font-weight:700}
-.input,.textarea,.select{
+.name{
+  font-weight:900;
+  font-size:18px;
+}
+
+.arrow{
+  opacity:.6;
+  font-size:22px;
+}
+
+/* ================= FORMS ================= */
+
+.label{
+  margin-top:10px;
+  margin-bottom:6px;
+  color:var(--muted);
+  font-size:13px;
+  font-weight:700;
+}
+
+.input,
+.textarea,
+.select{
   width:100%;
   border-radius:14px;
   border:1px solid rgba(255,255,255,.10);
   background:rgba(0,0,0,.18);
   color:var(--text);
-  padding:12px 12px;
+  padding:12px;
   outline:none;
-}
-.textarea{min-height:90px;resize:none}
 
-.row{display:flex;gap:10px}
+  /* ключ для iOS anti-zoom */
+  font-size:16px;
+  line-height:22px;
+
+  -webkit-appearance:none;
+  appearance:none;
+}
+
+.textarea{
+  min-height:110px;
+  resize:none;
+}
+
+.row{
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+
+/* ================= BUTTONS ================= */
 
 .btn{
   flex:1;
@@ -92,18 +180,6 @@ body{
   color:var(--btnText);
   font-weight:900;
   cursor:pointer;
-}
-.btn:active{transform:scale(.99)}
-
-.tabs{
-  position:fixed;
-  left:0;right:0;bottom:0;
-  background:rgba(10,14,20,.92);
-  border-top:1px solid rgba(255,255,255,.08);
-  display:flex;
-  gap:10px;
-  padding:10px 14px;
-  justify-content:center;
 }
 
 .tab{
@@ -116,144 +192,81 @@ body{
   font-weight:900;
   cursor:pointer;
 }
+
 .tab.active{
   background:rgba(255,255,255,.18);
   border-color:rgba(255,255,255,.22);
 }
 
-.req{
-  padding:10px 2px;
-}
-.reqTop{
+/* ================= TABS BAR ================= */
+
+.tabs{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  background:rgba(10,14,20,.92);
+  border-top:1px solid rgba(255,255,255,.08);
   display:flex;
-  justify-content:space-between;
   gap:10px;
-  margin-bottom:6px;
-}
-.reqTitle{font-weight:900}
-.reqStatus{font-weight:900;opacity:.9}
-
-.garageItem{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  padding:12px 10px;
-  border-radius:16px;
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(0,0,0,.10);
-  margin-bottom:10px;
+  padding:10px 14px;
+  justify-content:center;
 }
 
-.garageBtns{display:flex;gap:8px}
-.chip{
-  border:none;
-  border-radius:999px;
-  padding:8px 10px;
-  background:var(--chip);
-  border:1px solid rgba(255,255,255,.10);
-  color:var(--text);
-  font-weight:900;
-  cursor:pointer;
-}
-.chip.danger{
-  background:rgba(255,77,77,.12);
-  border-color:rgba(255,77,77,.25);
-  color:#ffd2d2;
-}
+/* ================= DESKTOP HOVER ================= */
 
-/* =========================
-   iOS/Telegram WebView anti-zoom
-   Ключевое: input/textarea/select >= 16px
-   ========================= */
-.input,.textarea,.select{
-  font-size:16px; /* убирает авто-приближение iOS */
-  line-height:22px;
-}
+@media (hover:hover) and (pointer:fine){
 
-html, body {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
-
-/* ====== Buttons / hover / bounce ====== */
-
-/* чтобы hover работал только там, где есть курсор */
-@media (hover: hover) and (pointer: fine) {
-  .btn, .tab, .chip, .item, button {
-    transition: transform .16s ease, filter .16s ease, background-color .16s ease,
-      border-color .16s ease, box-shadow .16s ease, opacity .16s ease;
-    will-change: transform;
+  .btn,
+  .tab,
+  .item,
+  button{
+    transition:
+      transform .16s ease,
+      filter .16s ease,
+      background-color .16s ease,
+      border-color .16s ease,
+      box-shadow .16s ease;
+    will-change:transform;
   }
 
-  .btn:hover, .tab:hover, .chip:hover, .item:hover, button:hover {
-    filter: brightness(1.08);
-    box-shadow: 0 10px 22px rgba(0,0,0,.24);
-    transform: translateY(-1px);
+  .btn:hover,
+  .tab:hover,
+  .item:hover,
+  button:hover{
+    filter:brightness(1.08);
+    box-shadow:0 10px 22px rgba(0,0,0,.24);
+    transform:translateY(-1px);
   }
 
-  .btn:hover { filter: brightness(1.03); } /* белую кнопку чуть мягче */
-  .item:hover { background: rgba(255,255,255,.06); }
-  .tab:hover, .chip:hover { background: rgba(255,255,255,.10); }
+  .item:hover{
+    background:rgba(255,255,255,.06);
+  }
+
+  .tab:hover{
+    background:rgba(255,255,255,.10);
+  }
 }
 
-/* bounce на нажатие — и для мобилы, и для десктопа */
-.btn:active, .tab:active, .chip:active, .item:active, button:active {
-  transform: scale(0.98);
+/* ================= MOBILE BOUNCE ================= */
+
+.pressable{
+  transition:transform .18s cubic-bezier(.2,.8,.3,1);
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
 }
 
-/* микро-анимация “упругости” */
-.btn, .tab, .chip, .item, button {
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-  cursor: pointer;
+.pressable.pressed{
+  transform:scale(.96);
 }
 
-/* если хочешь прям “баунс” как пружинка — добавим keyframes */
-@keyframes pressBounce {
-  0% { transform: scale(1); }
-  35% { transform: scale(0.975); }
-  70% { transform: scale(1.01); }
-  100% { transform: scale(1); }
-}
+/* ================= FOCUS ================= */
 
-/* запускаем bounce на клике (отрабатывает в большинстве браузеров) */
-.btn:active, .tab:active, .chip:active, .item:active, button:active {
-  animation: pressBounce 180ms ease-out;
+.btn:focus-visible,
+.tab:focus-visible,
+.item:focus-visible,
+button:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(120,170,255,.35);
+  border-color:rgba(120,170,255,.55);
 }
-
-/* красивый фокус для клавиатуры */
-.btn:focus-visible, .tab:focus-visible, .chip:focus-visible, .item:focus-visible, button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(120, 170, 255, .35);
-  border-color: rgba(120, 170, 255, .55);
-}
-/* ===== Mobile press animation ===== */
-
-.pressable {
-  transition: transform 0.18s cubic-bezier(.2,.8,.3,1);
-}
-
-.pressable.pressed {
-  transform: scale(0.96);
-}
-/* ===== Keyboard stable layout fix ===== */
-
-html, body {
-  height: 100%;
-  overflow-x: hidden;
-}
-
-body.keyboard-open {
-  position: fixed;
-  width: 100%;
-}
-/* ===== keyboard scroll helper ===== */
-:root{
-  --kb: 0px; /* высота клавиатуры */
-}
-
-/* чтобы scrollIntoView учитывал клавиатуру */
-body{
-  scroll-padding-bottom: calc(var(--kb) + 24px);
-}
-
