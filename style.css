@@ -11,6 +11,7 @@
 
   /* стабилизация высоты при клавиатуре */
   --vvh: 100vh;
+  --kb: 0px;
 }
 
 /* ================= BASE ================= */
@@ -22,49 +23,56 @@
 html, body{
   margin:0;
   padding:0;
+  height:100%;
   background:var(--bg);
   color:var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-
-  height:100%;
-  overflow-x:hidden;
 
   -webkit-text-size-adjust:100%;
   text-size-adjust:100%;
 }
 
+/* iOS/TG WebView: блокируем скролл body, чтобы клавиатура не “подпрыгивала” страницу */
 body{
-  touch-action:manipulation;
-  -webkit-tap-highlight-color:transparent;
+  position:fixed;
+  inset:0;
+  width:100%;
+  overflow:hidden;
+  overscroll-behavior:none;
+  -webkit-overflow-scrolling: auto;
 }
 
-/* ================= WRAP ================= */
+/* ================= LAYOUT ================= */
 
 .wrap{
   max-width:520px;
   margin:0 auto;
-  padding:16px 14px 90px;
+
+  /* ВАЖНО: теперь это единственный скролл-контейнер */
+  height:var(--vvh);
   min-height:var(--vvh);
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+
+  /* базовый паддинг + место под таббар + место под клавиатуру */
+  padding:16px 14px calc(90px + var(--kb, 0px));
+  scroll-padding-bottom:calc(120px + var(--kb, 0px));
 }
 
-/* ================= HEADER ================= */
-
-.head{
-  margin-bottom:14px;
+h1{
+  margin:6px 0 8px;
+  font-size:46px;
+  line-height:1;
+  letter-spacing:-1px;
 }
 
-.title{
-  font-size:34px;
-  font-weight:900;
-  letter-spacing:-.5px;
-}
-
-.sub{
+.subtitle{
   color:var(--muted);
-  margin-top:4px;
+  font-size:17px;
+  line-height:1.35;
+  margin-bottom:16px;
 }
-
-/* ================= CARDS ================= */
 
 .card{
   background:linear-gradient(
@@ -79,13 +87,15 @@ body{
 }
 
 .badge{
-  display:inline-block;
-  padding:6px 10px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
   border-radius:999px;
-  background:rgba(255,255,255,.08);
-  border:1px solid rgba(255,255,255,.10);
-  font-weight:800;
-  font-size:13px;
+  padding:8px 12px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+  color:var(--text);
+  font-weight:900;
 }
 
 .hr{
@@ -96,11 +106,9 @@ body{
 
 .small{
   color:var(--muted);
-  font-size:13px;
-  line-height:1.35;
+  font-size:14px;
+  line-height:1.3;
 }
-
-/* ================= GRID ITEMS ================= */
 
 .grid{
   display:flex;
@@ -112,64 +120,69 @@ body{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  padding:14px;
+  padding:14px 14px;
   border-radius:16px;
   border:1px solid rgba(255,255,255,.08);
-  background:rgba(0,0,0,.10);
+  background:rgba(0,0,0,.18);
   cursor:pointer;
 }
 
-.name{
+.item .name{
   font-weight:900;
-  font-size:18px;
+  font-size:16px;
 }
 
-.arrow{
-  opacity:.6;
-  font-size:22px;
+.item .arrow{
+  font-size:20px;
+  opacity:.8;
 }
-
-/* ================= FORMS ================= */
 
 .label{
-  margin-top:10px;
-  margin-bottom:6px;
+  margin:12px 0 6px;
   color:var(--muted);
-  font-size:13px;
-  font-weight:700;
+  font-weight:900;
 }
 
-.input,
-.textarea,
-.select{
+/* iOS: чтобы не было авто-зума на инпутах */
+.input{
+  font-size:16px;
   width:100%;
-  border-radius:14px;
+  border-radius:16px;
   border:1px solid rgba(255,255,255,.10);
   background:rgba(0,0,0,.18);
   color:var(--text);
-  padding:12px;
+  padding:14px 14px;
   outline:none;
-
-  /* ключ для iOS anti-zoom */
-  font-size:16px;
-  line-height:22px;
-
-  -webkit-appearance:none;
-  appearance:none;
 }
 
 .textarea{
-  min-height:110px;
-  resize:none;
+  font-size:16px;
+  width:100%;
+  min-height:84px;
+  resize:vertical;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(0,0,0,.18);
+  color:var(--text);
+  padding:14px 14px;
+  outline:none;
+}
+
+.select{
+  font-size:16px;
+  width:100%;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(0,0,0,.18);
+  color:var(--text);
+  padding:14px 14px;
+  outline:none;
 }
 
 .row{
   display:flex;
   gap:10px;
-  align-items:center;
 }
-
-/* ================= BUTTONS ================= */
 
 .btn{
   flex:1;
@@ -180,6 +193,11 @@ body{
   color:var(--btnText);
   font-weight:900;
   cursor:pointer;
+}
+
+.btn.danger{
+  background:var(--danger);
+  color:#fff;
 }
 
 .tab{
@@ -194,79 +212,35 @@ body{
 }
 
 .tab.active{
-  background:rgba(255,255,255,.18);
-  border-color:rgba(255,255,255,.22);
+  background:rgba(255,255,255,.10);
 }
 
-/* ================= TABS BAR ================= */
+/* ================= TABS ================= */
 
 .tabs{
   position:fixed;
   left:0;
   right:0;
-  bottom:0;
+  bottom:0; /* JS поднимает это значение на высоту клавиатуры */
+  z-index:999;
+
   background:rgba(10,14,20,.92);
   border-top:1px solid rgba(255,255,255,.08);
+
   display:flex;
   gap:10px;
-  padding:10px 14px;
   justify-content:center;
+
+  padding:10px 14px calc(10px + env(safe-area-inset-bottom));
 }
 
-/* ================= DESKTOP HOVER ================= */
-
-@media (hover:hover) and (pointer:fine){
-
-  .btn,
-  .tab,
-  .item,
-  button{
-    transition:
-      transform .16s ease,
-      filter .16s ease,
-      background-color .16s ease,
-      border-color .16s ease,
-      box-shadow .16s ease;
-    will-change:transform;
-  }
-
-  .btn:hover,
-  .tab:hover,
-  .item:hover,
-  button:hover{
-    filter:brightness(1.08);
-    box-shadow:0 10px 22px rgba(0,0,0,.24);
-    transform:translateY(-1px);
-  }
-
-  .item:hover{
-    background:rgba(255,255,255,.06);
-  }
-
-  .tab:hover{
-    background:rgba(255,255,255,.10);
-  }
-}
-
-/* ================= MOBILE BOUNCE ================= */
+/* ================= PRESS FEEL ================= */
 
 .pressable{
-  transition:transform .18s cubic-bezier(.2,.8,.3,1);
-  -webkit-tap-highlight-color:transparent;
-  user-select:none;
+  transition: transform .12s ease, filter .12s ease;
 }
 
 .pressable.pressed{
-  transform:scale(.96);
-}
-
-/* ================= FOCUS ================= */
-
-.btn:focus-visible,
-.tab:focus-visible,
-.item:focus-visible,
-button:focus-visible{
-  outline:none;
-  box-shadow:0 0 0 3px rgba(120,170,255,.35);
-  border-color:rgba(120,170,255,.55);
+  transform: scale(.985);
+  filter: brightness(1.08);
 }
