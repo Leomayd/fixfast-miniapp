@@ -236,5 +236,16 @@ html, body {
 .pressable.pressed {
   transform: scale(0.96);
 }
+/* ===== Keyboard stable layout fix ===== */
+
+html, body {
+  height: 100%;
+  overflow-x: hidden;
+}
+
+body.keyboard-open {
+  position: fixed;
+  width: 100%;
+}
 
 
