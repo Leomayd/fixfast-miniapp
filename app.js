@@ -144,35 +144,101 @@ function attachPressEffects(root = document) {
   });
 }
 
-// ====== KEYBOARD STABLE FIX (safe) ======
-// Без position:fixed, без вмешательства в scroll state (не ломает webview)
+// ====== KEYBOARD STABLE FIX (no jump, auto insets) ======
 function setupKeyboardStabilizer() {
-  const vv = window.visualViewport;
+  const vv = window.visualViewport || null;
 
-  function updateVvh() {
-    const h = vv ? vv.height : window.innerHeight;
-    document.documentElement.style.setProperty("--vvh", `${h}px`);
+  const wrapEl = document.querySelector(".wrap");
+  const tabsEl = document.querySelector(".tabs");
+
+  const BASE_WRAP_PADDING_TOP = 16;
+  const BASE_WRAP_PADDING_X = 14;
+  const BASE_WRAP_PADDING_BOTTOM = 90; // как в style.css (под таббар)
+
+  // считаем высоту клавиатуры (примерно), и применяем inset’ы к UI
+  function calcKeyboardPx() {
+    if (!vv) return 0;
+    // window.innerHeight — “layout viewport”
+    // vv.height/offsetTop — “visual viewport” (когда клавиатура открыта — меньше)
+    const kb = Math.max(0, Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)));
+    // иногда iOS даёт лишние 1-2px дрожания — сглаживаем
+    return kb < 8 ? 0 : kb;
   }
 
-  updateVvh();
-  window.addEventListener("resize", updateVvh);
-  if (vv) vv.addEventListener("resize", updateVvh);
+  function applyInsets() {
+    const vvh = vv ? vv.height : window.innerHeight;
+    document.documentElement.style.setProperty("--vvh", `${vvh}px`);
 
-  // мягко доводим поле в видимую зону, без "скачка масштаба"
-  document.addEventListener("focusin", (e) => {
-    const t = e.target;
-    if (!t) return;
-    const tag = t.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
-      setTimeout(() => {
-        try {
-          t.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-        } catch {
-          // fallback
-          try { t.scrollIntoView(true); } catch {}
-        }
-      }, 50);
+    const kb = calcKeyboardPx();
+    document.documentElement.style.setProperty("--kb", `${kb}px`);
+
+    // 1) поднимаем нижние табы над клавиатурой
+    if (tabsEl) tabsEl.style.bottom = `${kb}px`;
+
+    // 2) увеличиваем нижний паддинг основного контейнера,
+    // чтобы контент не “уезжал” под клавиатуру и таббар
+    if (wrapEl) {
+      wrapEl.style.padding = `${BASE_WRAP_PADDING_TOP}px ${BASE_WRAP_PADDING_X}px ${
+        BASE_WRAP_PADDING_BOTTOM + kb
+      }px`;
+      // важное: фиксируем min-height под visual viewport
+      wrapEl.style.minHeight = `${vvh}px`;
     }
+  }
+
+  // аккуратно доводим активный input/textarea в видимую область (без рывков)
+  function ensureFocusedVisible(target) {
+    if (!target || !(target instanceof HTMLElement)) return;
+
+    const tag = target.tagName;
+    if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
+
+    // 2 кадра — чтобы browser успел применить keyboard insets
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          const r = target.getBoundingClientRect();
+          const visualH = vv ? vv.height : window.innerHeight;
+
+          // небольшой отступ от низа (чтобы не прилипало к клавиатуре)
+          const SAFE_BOTTOM = 12;
+          const bottomLimit = visualH - SAFE_BOTTOM;
+
+          if (r.bottom > bottomLimit || r.top < 0) {
+            // scrollIntoView может скроллить body — но теперь у нас есть
+            // корректные inset’ы (паддинг снизу + табы подняты), поэтому
+            // “скачка вверх” не будет.
+            target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+          }
+        } catch {
+          try {
+            target.scrollIntoView(true);
+          } catch {}
+        }
+      });
+    });
+  }
+
+  // первичная установка
+  applyInsets();
+
+  // resize/layout changes
+  window.addEventListener("resize", applyInsets);
+  if (vv) {
+    vv.addEventListener("resize", applyInsets);
+    vv.addEventListener("scroll", applyInsets); // iOS иногда меняет offsetTop/height без resize
+  }
+
+  // focus handling
+  document.addEventListener("focusin", (e) => {
+    applyInsets();
+    ensureFocusedVisible(e.target);
+  });
+
+  // когда клавиатура закрылась — вернём inset’ы
+  document.addEventListener("focusout", () => {
+    // небольшой таймаут — чтобы iOS успел восстановить vv.height
+    setTimeout(applyInsets, 50);
   });
 }
 
