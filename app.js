@@ -605,3 +605,47 @@ tabs.forEach((btn) => {
 
   render();
 })();
+// ===============================
+// Mobile bounce + haptic patch
+// ===============================
+
+function attachPressEffects(root = document) {
+  root.querySelectorAll(".btn, .tab, .chip, .item, button").forEach(el => {
+
+    // защита от повторного навешивания
+    if (el.dataset.pressBound === "1") return;
+    el.dataset.pressBound = "1";
+
+    el.classList.add("pressable");
+
+    el.addEventListener("touchstart", () => {
+      el.classList.add("pressed");
+
+      // микровибрация Telegram
+      if (window.Telegram?.WebApp?.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.impactOccurred("light");
+      }
+    }, { passive: true });
+
+    el.addEventListener("touchend", () => {
+      setTimeout(() => el.classList.remove("pressed"), 140);
+    });
+
+    el.addEventListener("touchcancel", () => {
+      el.classList.remove("pressed");
+    });
+  });
+}
+
+// Автоматически отслеживаем любые изменения DOM
+const observer = new MutationObserver(() => {
+  attachPressEffects();
+});
+
+observer.observe(document.body, {
+  childList: true,
+  subtree: true
+});
+
+// Первичный запуск
+attachPressEffects();
