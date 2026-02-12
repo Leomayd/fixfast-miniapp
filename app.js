@@ -24,13 +24,11 @@ const CAR_CLASSES = ["Эконом", "Комфорт", "Бизнес", "Прем
 let state = {
   tab: "requests",
   selectedCategory: null,
-  profile: {
-    garage: [],
-    activeCarId: "",
-    points: 0,
-  },
+  profile: { garage: [], activeCarId: "", points: 0 },
   myRequests: [],
   pollTimer: null,
+  // чтобы не грузить лишнее при старте
+  myRequestsLoaded: false,
 };
 
 // ====== TG HELPERS ======
@@ -98,6 +96,7 @@ async function loadProfile() {
 async function loadMyRequests() {
   const data = await apiPost("/api/my-requests", { initData: getInitData() });
   state.myRequests = data.items || [];
+  state.myRequestsLoaded = true;
 }
 
 // ====== POLLING ======
@@ -108,6 +107,7 @@ function startPolling() {
     try {
       await loadMyRequests();
       renderInWork();
+      afterRender();
     } catch {}
   }, 5000);
 }
@@ -117,12 +117,78 @@ function stopPolling() {
   state.pollTimer = null;
 }
 
+// ====== PRESS + HAPTIC (mobile) ======
+function attachPressEffects(root = document) {
+  root.querySelectorAll(".btn, .tab, .chip, .item, button").forEach((el) => {
+    if (el.dataset.pressBound === "1") return;
+    el.dataset.pressBound = "1";
+
+    el.classList.add("pressable");
+
+    el.addEventListener(
+      "touchstart",
+      () => {
+        el.classList.add("pressed");
+        tg?.HapticFeedback?.impactOccurred?.("light");
+      },
+      { passive: true }
+    );
+
+    el.addEventListener("touchend", () => {
+      setTimeout(() => el.classList.remove("pressed"), 140);
+    });
+
+    el.addEventListener("touchcancel", () => {
+      el.classList.remove("pressed");
+    });
+  });
+}
+
+// ====== KEYBOARD STABLE FIX (safe) ======
+// Без position:fixed, без вмешательства в scroll state (не ломает webview)
+function setupKeyboardStabilizer() {
+  const vv = window.visualViewport;
+
+  function updateVvh() {
+    const h = vv ? vv.height : window.innerHeight;
+    document.documentElement.style.setProperty("--vvh", `${h}px`);
+  }
+
+  updateVvh();
+  window.addEventListener("resize", updateVvh);
+  if (vv) vv.addEventListener("resize", updateVvh);
+
+  // мягко доводим поле в видимую зону, без "скачка масштаба"
+  document.addEventListener("focusin", (e) => {
+    const t = e.target;
+    if (!t) return;
+    const tag = t.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+      setTimeout(() => {
+        try {
+          t.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+        } catch {
+          // fallback
+          try { t.scrollIntoView(true); } catch {}
+        }
+      }, 50);
+    }
+  });
+}
+
+// ====== AFTER RENDER HOOK ======
+function afterRender() {
+  // важное: эффекты цепляем после перерисовки DOM
+  attachPressEffects(document);
+}
+
 // ====== RENDER SWITCH ======
 function render() {
   if (!screen) return;
-  if (state.tab === "requests") return renderRequests();
-  if (state.tab === "inwork") return renderInWork();
-  if (state.tab === "profile") return renderProfile();
+  if (state.tab === "requests") renderRequests();
+  else if (state.tab === "inwork") renderInWork();
+  else if (state.tab === "profile") renderProfile();
+  afterRender();
 }
 
 // ====== REQUESTS TAB ======
@@ -209,11 +275,9 @@ function renderRequestForm(category) {
   const classSel = document.getElementById("carClass");
   const modelInp = document.getElementById("carModel");
 
-  // автоподстановка из активного авто
   if (activeCar?.carClass) classSel.value = activeCar.carClass;
   if (activeCar?.title) modelInp.value = activeCar.title;
 
-  // при выборе авто — подставляем класс/модель
   carSel?.addEventListener("change", () => {
     const id = carSel.value;
     const chosen = cars.find((c) => String(c.id) === String(id)) || activeCar;
@@ -269,6 +333,7 @@ async function submitRequest(category) {
   try {
     await apiPost("/api/request", payload);
 
+    tg?.HapticFeedback?.notificationOccurred?.("success");
     tg?.showPopup?.({
       title: "Заявка отправлена ✅",
       message: "После завершения работ вы получите 1000 бонусов. Статус появится во вкладке «В работе».",
@@ -276,13 +341,9 @@ async function submitRequest(category) {
     });
 
     state.selectedCategory = null;
-
-    try {
-      await loadMyRequests();
-    } catch {}
-
     render();
   } catch (e) {
+    tg?.HapticFeedback?.notificationOccurred?.("error");
     tg?.showPopup?.({
       title: "Ошибка",
       message: `Не удалось отправить заявку: ${e?.message || e}`,
@@ -316,7 +377,7 @@ function renderInWork() {
           `
               )
               .join('<div class="hr"></div>')
-          : `<div class="small">Пока нет заявок. Создайте заявку во вкладке «Заявки».</div>`
+          : `<div class="small">${state.myRequestsLoaded ? "Пока нет заявок. Создайте заявку во вкладке «Заявки»." : "Загрузка..."}</div>`
       }
 
       <div class="hr"></div>
@@ -326,8 +387,10 @@ function renderInWork() {
 
   document.getElementById("refreshBtn")?.addEventListener("click", async () => {
     try {
+      tg?.HapticFeedback?.impactOccurred?.("light");
       await loadMyRequests();
       renderInWork();
+      afterRender();
     } catch (e) {
       tg?.showPopup?.({
         title: "Ошибка",
@@ -381,7 +444,6 @@ function renderCarCard(c, isActive) {
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;min-width:140px">
           <button class="tab" data-act="set" data-id="${escapeHtml(c.id)}">Выбрать</button>
-          <button class="tab" data-act="toggle" data-id="${escapeHtml(c.id)}">Свернуть</button>
           <button class="tab" data-act="del" data-id="${escapeHtml(c.id)}">✕</button>
         </div>
       </div>
@@ -474,10 +536,13 @@ async function renderProfile() {
       if (!carId) return;
 
       try {
+        tg?.HapticFeedback?.impactOccurred?.("light");
+
         if (act === "set") {
           await apiPost("/api/garage/set-active", { initData: getInitData(), carId });
           await loadProfile();
           await renderProfile();
+          afterRender();
           return;
         }
 
@@ -485,6 +550,7 @@ async function renderProfile() {
           await apiPost("/api/garage/delete", { initData: getInitData(), carId });
           await loadProfile();
           await renderProfile();
+          afterRender();
           return;
         }
 
@@ -496,6 +562,7 @@ async function renderProfile() {
           await apiPost("/api/garage/update", { initData: getInitData(), carId, plate, vin, color });
           await loadProfile();
           await renderProfile();
+          afterRender();
 
           tg?.showPopup?.({ title: "Готово ✅", message: "Данные авто сохранены.", buttons: [{ type: "ok" }] });
           return;
@@ -518,6 +585,7 @@ async function renderProfile() {
 
           await loadProfile();
           await renderProfile();
+          afterRender();
 
           const lines = [];
           if (r?.decodedPretty) lines.push(`VIN: ${r.decodedPretty}`);
@@ -560,9 +628,11 @@ async function renderProfile() {
     }
 
     try {
+      tg?.HapticFeedback?.impactOccurred?.("light");
       await apiPost("/api/garage/add", { initData: getInitData(), title, carClass, plate: "" });
       await loadProfile();
       await renderProfile();
+      afterRender();
       tg?.showPopup?.({ title: "Готово ✅", message: "Авто добавлено", buttons: [{ type: "ok" }] });
     } catch (e) {
       tg?.showPopup?.({ title: "Ошибка", message: e?.message || String(e), buttons: [{ type: "ok" }] });
@@ -580,182 +650,29 @@ tabs.forEach((btn) => {
     if (state.tab !== "requests") state.selectedCategory = null;
 
     try {
+      // ленивая загрузка, чтобы старт был быстрее
       if (state.tab === "profile") await loadProfile();
-      if (state.tab === "inwork") await loadMyRequests();
+      if (state.tab === "inwork") {
+        if (!state.myRequestsLoaded) await loadMyRequests();
+        startPolling();
+      } else {
+        stopPolling();
+      }
     } catch {}
-
-    if (state.tab === "inwork") startPolling();
-    else stopPolling();
 
     render();
   });
 });
 
-// ====== BOOT ======
+// ====== BOOT (оптимизировано) ======
 (async function boot() {
+  // быстрый старт: грузим только профиль (нужен для активного авто)
   try {
     await loadProfile();
   } catch (e) {
     console.warn("loadProfile failed:", e?.message || e);
   }
 
-  try {
-    await loadMyRequests();
-  } catch {}
-
+  setupKeyboardStabilizer();
   render();
 })();
-// ===============================
-// Mobile bounce + haptic patch
-// ===============================
-
-function attachPressEffects(root = document) {
-  root.querySelectorAll(".btn, .tab, .chip, .item, button").forEach(el => {
-
-    // защита от повторного навешивания
-    if (el.dataset.pressBound === "1") return;
-    el.dataset.pressBound = "1";
-
-    el.classList.add("pressable");
-
-    el.addEventListener("touchstart", () => {
-      el.classList.add("pressed");
-
-      // микровибрация Telegram
-      if (window.Telegram?.WebApp?.HapticFeedback) {
-        window.Telegram.WebApp.HapticFeedback.impactOccurred("light");
-      }
-    }, { passive: true });
-
-    el.addEventListener("touchend", () => {
-      setTimeout(() => el.classList.remove("pressed"), 140);
-    });
-
-    el.addEventListener("touchcancel", () => {
-      el.classList.remove("pressed");
-    });
-  });
-}
-
-// Автоматически отслеживаем любые изменения DOM
-const observer = new MutationObserver(() => {
-  attachPressEffects();
-});
-
-observer.observe(document.body, {
-  childList: true,
-  subtree: true
-});
-
-// Первичный запуск
-attachPressEffects();
-
-// ===============================
-// Keyboard anti-jump стабилизация
-// ===============================
-
-let scrollYBeforeKeyboard = 0;
-
-function lockBody() {
-  scrollYBeforeKeyboard = window.scrollY;
-  document.body.classList.add("keyboard-open");
-  document.body.style.top = `-${scrollYBeforeKeyboard}px`;
-}
-
-function unlockBody() {
-  document.body.classList.remove("keyboard-open");
-  document.body.style.top = "";
-  window.scrollTo(0, scrollYBeforeKeyboard);
-}
-
-function setupKeyboardFix() {
-  document.addEventListener("focusin", (e) => {
-    const tag = e.target.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") {
-      lockBody();
-    }
-  });
-
-  document.addEventListener("focusout", (e) => {
-    const tag = e.target.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") {
-      setTimeout(() => unlockBody(), 100);
-    }
-  });
-
-  // Доп. стабилизация через visualViewport
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", () => {
-      document.documentElement.style.height =
-        window.visualViewport.height + "px";
-    });
-  }
-}
-
-// ===============================
-// iOS Telegram keyboard jump fix
-// ===============================
-
-(function setupKeyboardScrollFix() {
-  const vv = window.visualViewport;
-
-  function updateKeyboardVar() {
-    if (!vv) return;
-    // высота "съеденная" клавиатурой
-    const kb = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop || 0));
-    document.documentElement.style.setProperty("--kb", kb + "px");
-  }
-
-  function scrollFieldIntoView(el) {
-    if (!el || !(el instanceof HTMLElement)) return;
-
-    // Делаем 2 прохода: сразу и после подъёма клавиатуры
-    const doScroll = () => {
-      const rect = el.getBoundingClientRect();
-
-      const viewportH = vv ? vv.height : window.innerHeight;
-      const topSafe = 90;   // чтобы не уезжало под шапку Telegram
-      const bottomSafe = 16;
-
-      // если поле уже в зоне видимости — ничего не делаем
-      if (rect.top >= topSafe && rect.bottom <= viewportH - bottomSafe) return;
-
-      // целевая позиция: центрируем поле по высоте доступного viewport
-      const targetY = window.scrollY + rect.top - (viewportH / 2) + (rect.height / 2);
-
-      window.scrollTo({
-        top: Math.max(0, targetY),
-        behavior: "auto" // без плавности — меньше "прыжка"
-      });
-    };
-
-    // 1) сразу
-    doScroll();
-    // 2) после анимации клавиатуры
-    setTimeout(doScroll, 50);
-    setTimeout(doScroll, 150);
-  }
-
-  // обновляем переменную клавиатуры
-  if (vv) {
-    vv.addEventListener("resize", updateKeyboardVar);
-    vv.addEventListener("scroll", updateKeyboardVar);
-  }
-  window.addEventListener("resize", updateKeyboardVar);
-  updateKeyboardVar();
-
-  // при фокусе — мгновенно выравниваем позицию
-  document.addEventListener("focusin", (e) => {
-    const t = e.target;
-    if (!t) return;
-    const tag = t.tagName;
-    if (tag === "INPUT"  tag === "TEXTAREA"  tag === "SELECT") {
-      // маленькая задержка чтобы Telegram успел применить фокус
-      setTimeout(() => scrollFieldIntoView(t), 0);
-    }
-  });
-})();
-
-// запускаем один раз
-setupKeyboardFix();
-
