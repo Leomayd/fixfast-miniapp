@@ -174,3 +174,57 @@ html, body {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
+
+/* ====== Buttons / hover / bounce ====== */
+
+/* чтобы hover работал только там, где есть курсор */
+@media (hover: hover) and (pointer: fine) {
+  .btn, .tab, .chip, .item, button {
+    transition: transform .16s ease, filter .16s ease, background-color .16s ease,
+      border-color .16s ease, box-shadow .16s ease, opacity .16s ease;
+    will-change: transform;
+  }
+
+  .btn:hover, .tab:hover, .chip:hover, .item:hover, button:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 10px 22px rgba(0,0,0,.24);
+    transform: translateY(-1px);
+  }
+
+  .btn:hover { filter: brightness(1.03); } /* белую кнопку чуть мягче */
+  .item:hover { background: rgba(255,255,255,.06); }
+  .tab:hover, .chip:hover { background: rgba(255,255,255,.10); }
+}
+
+/* bounce на нажатие — и для мобилы, и для десктопа */
+.btn:active, .tab:active, .chip:active, .item:active, button:active {
+  transform: scale(0.98);
+}
+
+/* микро-анимация “упругости” */
+.btn, .tab, .chip, .item, button {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  cursor: pointer;
+}
+
+/* если хочешь прям “баунс” как пружинка — добавим keyframes */
+@keyframes pressBounce {
+  0% { transform: scale(1); }
+  35% { transform: scale(0.975); }
+  70% { transform: scale(1.01); }
+  100% { transform: scale(1); }
+}
+
+/* запускаем bounce на клике (отрабатывает в большинстве браузеров) */
+.btn:active, .tab:active, .chip:active, .item:active, button:active {
+  animation: pressBounce 180ms ease-out;
+}
+
+/* красивый фокус для клавиатуры */
+.btn:focus-visible, .tab:focus-visible, .chip:focus-visible, .item:focus-visible, button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(120, 170, 255, .35);
+  border-color: rgba(120, 170, 255, .55);
+}
+
